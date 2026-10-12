@@ -26,6 +26,15 @@ class ChartConfig:
     # scanner-read charts when combined with -s (see stages.generate_chart).
     reader_type: str = "SS"
     raster_dpi: int = 300  # printtarg -t<dpi>: resolution of the printable TIFF
+    # Minimum patch width/height in mm, e.g. to comfortably clear a
+    # colorimeter's measurement aperture. None = use printtarg's natural
+    # size for the given patch count/page size. When set, generate_chart
+    # runs printtarg twice: once to discover the natural size from the
+    # resulting .cht, then again with -a<scale> computed to reach this
+    # minimum (confirmed empirically: printtarg's -a scales patch size
+    # uniformly, and a chart whose natural patches happened to be square
+    # produced exactly the requested size after scaling).
+    min_patch_size_mm: float | None = None
     extra_targen_args: list[str] = field(default_factory=list)
     extra_printtarg_args: list[str] = field(default_factory=list)
 

@@ -10,9 +10,10 @@
     "grey_steps": 12,
     "page_size": "A4",
     "reader_type": "SS",
+    "raster_dpi": 300,
+    "min_patch_size_mm": 10.0,
     "extra_targen_args": [],
-    "extra_printtarg_args": [],
-    "raster_dpi": 300
+    "extra_printtarg_args": []
   },
   "measurement": {
     "method": "colorimeter_csv",

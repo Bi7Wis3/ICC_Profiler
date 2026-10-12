@@ -49,6 +49,7 @@ def create_job(
     patch_count: int = Form(250),
     grey_steps: int = Form(16),
     page_size: str = Form("A4"),
+    min_patch_size_mm: str = Form(""),
 ):
     config = JobConfig(
         job_name=job_name.strip(),
@@ -59,6 +60,7 @@ def create_job(
             patch_count=patch_count,
             grey_steps=grey_steps,
             page_size=page_size,
+            min_patch_size_mm=float(min_patch_size_mm) if min_patch_size_mm.strip() else None,
         ),
         measurement=MeasurementConfig(method=method),
         output=OutputConfig(profile_description=f"{printer_name} / {paper_name}"),
@@ -82,11 +84,15 @@ def _unique_job_name(base: str) -> str:
     return candidate
 
 
-# Sane defaults for a colorimeter-CSV job's chart: lower than a typical
-# scanner job's, since every patch here means one manual measurement rather
-# than being captured all at once in a single scan.
+# Sane defaults for a colorimeter-CSV job's chart: lower patch count than a
+# typical scanner job's, since every patch here means one manual measurement
+# rather than being captured all at once in a single scan; and a minimum
+# patch size large enough to comfortably clear a handheld colorimeter's
+# measurement aperture (10mm confirmed as the right size for the user's
+# CHNSpec DS-173).
 _COLORIMETER_DEFAULT_PATCH_COUNT = 120
 _COLORIMETER_DEFAULT_GREY_STEPS = 12
+_COLORIMETER_DEFAULT_MIN_PATCH_SIZE_MM = 10.0
 
 
 @router.post("/jobs/{job_name}/duplicate-as-colorimeter")
@@ -107,6 +113,7 @@ def duplicate_as_colorimeter(job_name: str):
             page_size=source.chart.page_size,
             reader_type=source.chart.reader_type,
             raster_dpi=source.chart.raster_dpi,
+            min_patch_size_mm=_COLORIMETER_DEFAULT_MIN_PATCH_SIZE_MM,
         ),
         measurement=MeasurementConfig(method="colorimeter_csv"),
         output=OutputConfig(
@@ -155,6 +162,7 @@ def edit_job(
     page_size: str = Form("A4"),
     reader_type: str = Form("SS"),
     raster_dpi: int = Form(300),
+    min_patch_size_mm: str = Form(""),
     extra_targen_args: str = Form(""),
     extra_printtarg_args: str = Form(""),
     profile_description: str = Form(""),
@@ -175,6 +183,7 @@ def edit_job(
     config.chart.page_size = page_size
     config.chart.reader_type = reader_type
     config.chart.raster_dpi = raster_dpi
+    config.chart.min_patch_size_mm = float(min_patch_size_mm) if min_patch_size_mm.strip() else None
     config.chart.extra_targen_args = _parse_args_list(extra_targen_args)
     config.chart.extra_printtarg_args = _parse_args_list(extra_printtarg_args)
     config.output.profile_description = profile_description
