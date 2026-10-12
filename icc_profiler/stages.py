@@ -20,7 +20,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from icc_profiler import argyll_tools, csv_import, state, target_colors
+from icc_profiler import argyll_tools, cht_geometry, csv_import, state, target_colors
 from icc_profiler.config import JobConfig
 from icc_profiler.errors import PipelineError
 
@@ -151,19 +151,38 @@ def generate_chart(job_dir: Path, config: JobConfig) -> None:
     if colors:
         target_colors.merge_into_ti1(ti1, colors, config.chart.colorspace)
 
-    printtarg_argv = [
-        _bin("printtarg", config),
-        "-v",
-        f"-i{config.chart.reader_type}",
-        "-s",  # generate the .cht chart-recognition file (confirmed required -- omitting it produces no .cht)
-        f"-t{config.chart.raster_dpi}",  # 8-bit TIFF output (confirmed required -- default output is PostScript, not a raster image)
-        f"-p{config.chart.page_size}",
-        *config.chart.extra_printtarg_args,
-        str(basename),
-    ]
-    argyll_tools.run(printtarg_argv, log_file=log, cwd=chart_dir(job_dir))
+    def _printtarg_argv(extra: list[str]) -> list[str]:
+        return [
+            _bin("printtarg", config),
+            "-v",
+            f"-i{config.chart.reader_type}",
+            "-s",  # generate the .cht chart-recognition file (confirmed required -- omitting it produces no .cht)
+            f"-t{config.chart.raster_dpi}",  # 8-bit TIFF output (confirmed required -- default output is PostScript, not a raster image)
+            f"-p{config.chart.page_size}",
+            *config.chart.extra_printtarg_args,
+            *extra,
+            str(basename),
+        ]
+
+    argyll_tools.run(_printtarg_argv([]), log_file=log, cwd=chart_dir(job_dir))
     _require_file(ti2_path(job_dir, config), "printtarg output (.ti2)")
-    _require_file(cht_path(job_dir, config), "printtarg chart-recognition template (.cht)")
+    cht = cht_path(job_dir, config)
+    _require_file(cht, "printtarg chart-recognition template (.cht)")
+
+    if config.chart.min_patch_size_mm:
+        # Confirmed empirically: printtarg's -a scales patch size uniformly
+        # relative to its natural layout for this patch count/page size;
+        # re-running with the computed scale reliably hits the target size
+        # (e.g. natural 7.0x7.0mm patches -> -a1.42857 -> 9.99999x9.99999mm).
+        width_mm, height_mm = cht_geometry.read_patch_size_mm(cht)
+        smallest = min(width_mm, height_mm)
+        if smallest < config.chart.min_patch_size_mm:
+            scale = config.chart.min_patch_size_mm / smallest
+            argyll_tools.run(
+                _printtarg_argv([f"-a{scale:.6f}"]), log_file=log, cwd=chart_dir(job_dir)
+            )
+            _require_file(ti2_path(job_dir, config), "printtarg output (.ti2)")
+            _require_file(cht, "printtarg chart-recognition template (.cht)")
 
     state.mark_done(job_dir, "generate-chart")
 

@@ -48,6 +48,11 @@
       <label>printtarg reader type (-i) <input type="text" name="reader_type" value="{{ config.chart.reader_type }}"></label>
       <label>Raster DPI <input type="number" name="raster_dpi" value="{{ config.chart.raster_dpi }}" min="72"></label>
     </div>
+    <label>Minimum patch size (mm)
+      <input type="number" step="0.1" min="0" name="min_patch_size_mm" value="{{ config.chart.min_patch_size_mm or '' }}" placeholder="leave blank for printtarg's natural size">
+    </label>
+    <small>Scales patches up (never down) to at least this size on each side — e.g. to clear a
+       colorimeter's measurement aperture. Takes effect on the next "generate-chart" run.</small>
     <div class="form-row">
       <label>Extra targen args <input type="text" name="extra_targen_args" value="{{ config.chart.extra_targen_args|join(' ') }}" placeholder="space-separated, e.g. -l250"></label>
       <label>Extra printtarg args <input type="text" name="extra_printtarg_args" value="{{ config.chart.extra_printtarg_args|join(' ') }}" placeholder="space-separated"></label>

@@ -40,6 +40,11 @@
       <label>Grey steps <input type="number" name="grey_steps" value="16" min="2"></label>
     </div>
     <small>For colorimeter-CSV jobs, prefer a lower patch count (e.g. 100-150) — every patch is measured by hand.</small>
+    <label>Minimum patch size (mm)
+      <input type="number" step="0.1" min="0" name="min_patch_size_mm" placeholder="leave blank for printtarg's natural size">
+    </label>
+    <small>For colorimeter-CSV jobs, set this to comfortably clear your device's measurement
+       aperture (e.g. 10mm). You can also set/change this later from the job's Edit settings page.</small>
   </fieldset>
 
   <button type="submit">Create job</button>
