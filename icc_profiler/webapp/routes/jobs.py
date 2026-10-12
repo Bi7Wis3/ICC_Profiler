@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import shutil
+from urllib.parse import quote
+
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import RedirectResponse
 
@@ -19,7 +22,13 @@ router = APIRouter()
 @router.get("/")
 def dashboard(request: Request):
     return templates.TemplateResponse(
-        request, "jobs_list.html", {"jobs": list_jobs()}
+        request,
+        "jobs_list.html",
+        {
+            "jobs": list_jobs(),
+            "ok": request.query_params.get("ok"),
+            "error": request.query_params.get("error"),
+        },
     )
 
 
@@ -61,6 +70,72 @@ def create_job(
             request, "job_new.html", {"error": str(exc)}, status_code=400
         )
     return RedirectResponse(f"/jobs/{config.job_name}", status_code=303)
+
+
+def _unique_job_name(base: str) -> str:
+    candidate = base
+    n = 2
+    while (JOBS_ROOT / candidate).exists():
+        candidate = f"{base}_{n}"
+        n += 1
+    return candidate
+
+
+# Sane defaults for a colorimeter-CSV job's chart: lower than a typical
+# scanner job's, since every patch here means one manual measurement rather
+# than being captured all at once in a single scan.
+_COLORIMETER_DEFAULT_PATCH_COUNT = 120
+_COLORIMETER_DEFAULT_GREY_STEPS = 12
+
+
+@router.post("/jobs/{job_name}/duplicate-as-colorimeter")
+def duplicate_as_colorimeter(job_name: str):
+    source = load_config(job_name)
+    new_name = _unique_job_name(f"{job_name}_colorimeter")
+
+    new_config = JobConfig(
+        job_name=new_name,
+        printer_name=source.printer_name,
+        printer_notes=source.printer_notes,
+        paper_name=source.paper_name,
+        paper_notes=source.paper_notes,
+        chart=ChartConfig(
+            colorspace=source.chart.colorspace,
+            patch_count=min(source.chart.patch_count, _COLORIMETER_DEFAULT_PATCH_COUNT),
+            grey_steps=min(source.chart.grey_steps, _COLORIMETER_DEFAULT_GREY_STEPS),
+            page_size=source.chart.page_size,
+            reader_type=source.chart.reader_type,
+            raster_dpi=source.chart.raster_dpi,
+        ),
+        measurement=MeasurementConfig(method="colorimeter_csv"),
+        output=OutputConfig(
+            profile_description=f"{source.printer_name} / {source.paper_name} (colorimeter-measured)",
+            quality=source.output.quality,
+        ),
+    )
+    new_config.validate()
+    new_job_dir = stages.init_job(JOBS_ROOT, new_config)
+
+    # Custom target colors are about the printer+paper combo, not the
+    # measurement method -- carry them straight over.
+    colors = target_colors.load(job_dir(job_name))
+    if colors:
+        target_colors.save(new_job_dir, colors)
+
+    return RedirectResponse(
+        f"/jobs/{new_name}?ok={quote('Created as a colorimeter-CSV job, duplicated from ' + job_name + '.')}",
+        status_code=303,
+    )
+
+
+@router.post("/jobs/{job_name}/delete")
+def delete_job(job_name: str):
+    jd = job_dir(job_name)
+    if jd.is_dir() and jd.parent == JOBS_ROOT:  # guard against any path trickery
+        shutil.rmtree(jd)
+    return RedirectResponse(
+        f"/?ok={quote(f'Deleted job {job_name!r}.')}", status_code=303
+    )
 
 
 @router.get("/jobs/{job_name}")

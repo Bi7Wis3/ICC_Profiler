@@ -65,6 +65,7 @@ button {
   font-size: 0.92em;
 }
 button:hover { filter: brightness(1.08); }
+.button-danger { background: var(--err); }
 fieldset { border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
 small { color: var(--muted); }
 .empty { color: var(--muted); font-style: italic; }
