@@ -11,6 +11,7 @@
   <button type="submit">Duplicate as colorimeter-CSV job</button>
 </form>
 {% endif %}
+<a href="/jobs/{{ job_name }}/edit"><button type="button">Edit settings</button></a>
 <form method="post" action="/jobs/{{ job_name }}/delete" style="display:inline"
       onsubmit="return confirm('Delete job {{ job_name }}? This permanently removes its chart, measurements, and profile. This cannot be undone.');">
   <button type="submit" class="button-danger">Delete job</button>

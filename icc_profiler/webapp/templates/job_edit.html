@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ job_name }} - ICC Profiler{% endblock %}
+{% block content %}
+<p><a href="/jobs/{{ job_name }}">&larr; {{ job_name }}</a></p>
+<h1>Edit settings: {{ job_name }}</h1>
+
+{% if error %}<p class="flash flash-error">{{ error }}</p>{% endif %}
+
+<p class="warning">⚠ Changing chart settings (patch count, grey steps, page size, colorspace...)
+   does not retroactively change a chart you already generated/printed. If you change these,
+   re-run "generate-chart" (and reprint) before measuring, or the chart and your measurements
+   won't match.</p>
+
+<p><small>Job name and measurement method can't be changed here — job name is fixed at
+   creation, and method requires a matching set of pipeline stages. Use
+   "Duplicate as colorimeter-CSV job" on the job page to switch methods.</small></p>
+
+<form method="post" action="/jobs/{{ job_name }}/edit" class="form">
+  <fieldset>
+    <legend>Printer / paper</legend>
+    <div class="form-row">
+      <label>Printer name <input type="text" name="printer_name" value="{{ config.printer_name }}"></label>
+      <label>Paper name <input type="text" name="paper_name" value="{{ config.paper_name }}"></label>
+    </div>
+    <div class="form-row">
+      <label>Printer notes <input type="text" name="printer_notes" value="{{ config.printer_notes }}"></label>
+      <label>Paper notes <input type="text" name="paper_notes" value="{{ config.paper_notes }}"></label>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Chart generation</legend>
+    <div class="form-row">
+      <label>Colorspace
+        <select name="colorspace">
+          {% for cs in ["RGB", "CMYK", "GRAY"] %}
+          <option value="{{ cs }}" {{ "selected" if config.chart.colorspace == cs }}>{{ cs }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Page size <input type="text" name="page_size" value="{{ config.chart.page_size }}"></label>
+    </div>
+    <div class="form-row">
+      <label>Patch count <input type="number" name="patch_count" value="{{ config.chart.patch_count }}" min="12"></label>
+      <label>Grey steps <input type="number" name="grey_steps" value="{{ config.chart.grey_steps }}" min="2"></label>
+    </div>
+    <div class="form-row">
+      <label>printtarg reader type (-i) <input type="text" name="reader_type" value="{{ config.chart.reader_type }}"></label>
+      <label>Raster DPI <input type="number" name="raster_dpi" value="{{ config.chart.raster_dpi }}" min="72"></label>
+    </div>
+    <div class="form-row">
+      <label>Extra targen args <input type="text" name="extra_targen_args" value="{{ config.chart.extra_targen_args|join(' ') }}" placeholder="space-separated, e.g. -l250"></label>
+      <label>Extra printtarg args <input type="text" name="extra_printtarg_args" value="{{ config.chart.extra_printtarg_args|join(' ') }}" placeholder="space-separated"></label>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Profile output</legend>
+    <label>Profile description <input type="text" name="profile_description" value="{{ config.output.profile_description }}"></label>
+    <label>Copyright <input type="text" name="copyright" value="{{ config.output.copyright }}"></label>
+    <div class="form-row">
+      <label>Quality
+        <select name="quality">
+          {% for q in ["low", "medium", "high", "ultra"] %}
+          <option value="{{ q }}" {{ "selected" if config.output.quality == q }}>{{ q }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Algorithm (colprof -a)
+        <select name="algorithm">
+          <option value="auto" {{ "selected" if config.output.algorithm == "auto" }}>auto (Lab cLUT, recommended)</option>
+          {% for a in ["l", "x", "g", "s", "m"] %}
+          <option value="{{ a }}" {{ "selected" if config.output.algorithm == a }}>{{ a }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+    <label>Extra colprof args <input type="text" name="extra_colprof_args" value="{{ config.output.extra_colprof_args|join(' ') }}" placeholder="space-separated"></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>ArgyllCMS</legend>
+    <label>Binary directory override <input type="text" name="bin_dir" value="{{ config.argyll.bin_dir or '' }}" placeholder="leave blank to use PATH"></label>
+  </fieldset>
+
+  <button type="submit">Save settings</button>
+</form>
+{% endblock %}
