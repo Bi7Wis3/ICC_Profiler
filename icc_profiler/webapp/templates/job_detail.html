@@ -6,6 +6,21 @@
 <p class="subtitle">{{ config.printer_name or "—" }} / {{ config.paper_name or "—" }}
   &middot; <span class="badge badge-{{ config.measurement.method }}">{{ config.measurement.method }}</span></p>
 
+{% if config.measurement.method == "scanner" %}
+<form method="post" action="/jobs/{{ job_name }}/duplicate-as-colorimeter" style="display:inline">
+  <button type="submit">Duplicate as colorimeter-CSV job</button>
+</form>
+{% endif %}
+<form method="post" action="/jobs/{{ job_name }}/delete" style="display:inline"
+      onsubmit="return confirm('Delete job {{ job_name }}? This permanently removes its chart, measurements, and profile. This cannot be undone.');">
+  <button type="submit" class="button-danger">Delete job</button>
+</form>
+{% if config.measurement.method == "scanner" %}
+<p><small>"Duplicate as colorimeter-CSV job" creates a new job with the same
+   printer/paper/custom colors, set up for hand-measured colorimeter CSV import
+   instead of scanning.</small></p>
+{% endif %}
+
 {% if ok %}<p class="flash flash-ok">{{ ok }}</p>{% endif %}
 {% if error %}<p class="flash flash-error">{{ error }}</p>{% endif %}
 

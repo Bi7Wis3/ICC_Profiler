@@ -3,6 +3,9 @@
 {% block content %}
 <h1>Profiling jobs</h1>
 
+{% if ok %}<p class="flash flash-ok">{{ ok }}</p>{% endif %}
+{% if error %}<p class="flash flash-error">{{ error }}</p>{% endif %}
+
 {% if not jobs %}
 <p class="empty">No jobs yet. <a href="/jobs/new">Create one</a> to get started.</p>
 {% else %}
