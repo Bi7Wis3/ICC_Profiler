@@ -4,6 +4,10 @@
 <p><a href="/jobs/{{ job_name }}">&larr; {{ job_name }}</a></p>
 <h1>Results: {{ job_name }}</h1>
 
+{% if icc_exists %}
+<p><a href="/jobs/{{ job_name }}/profile.icc"><button type="button">Download .icc profile</button></a></p>
+{% endif %}
+
 {% if not rows %}
 <p class="empty">No measurement data yet — run the measurement stage(s) for this job first.</p>
 {% else %}

@@ -47,7 +47,8 @@
     <button type="submit">Run all remaining stages</button>
     <label><input type="checkbox" name="force" value="true"> force re-run everything</label>
   </form>
-  <p><a href="/jobs/{{ job_name }}/results">View results &rarr;</a></p>
+  <p><a href="/jobs/{{ job_name }}/results">View results &rarr;</a>
+     {% if icc_exists %} &middot; <a href="/jobs/{{ job_name }}/profile.icc">Download .icc profile</a>{% endif %}</p>
 </section>
 
 <section class="card">
