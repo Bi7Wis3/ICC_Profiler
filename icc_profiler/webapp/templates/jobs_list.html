@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Jobs - ICC Profiler{% endblock %}
+{% block content %}
+<h1>Profiling jobs</h1>
+
+{% if not jobs %}
+<p class="empty">No jobs yet. <a href="/jobs/new">Create one</a> to get started.</p>
+{% else %}
+<table class="jobs-table">
+  <thead>
+    <tr><th>Job</th><th>Printer</th><th>Paper</th><th>Method</th><th>Progress</th></tr>
+  </thead>
+  <tbody>
+    {% for job in jobs %}
+    <tr>
+      <td><a href="/jobs/{{ job.name }}">{{ job.name }}</a></td>
+      <td>{{ job.printer_name or "—" }}</td>
+      <td>{{ job.paper_name or "—" }}</td>
+      <td><span class="badge badge-{{ job.method }}">{{ job.method }}</span></td>
+      <td>
+        <div class="progress">
+          <div class="progress-bar {% if job.complete %}complete{% endif %}"
+               style="width: {{ (job.done_count / job.total_stages * 100) | round }}%"></div>
+        </div>
+        {{ job.done_count }}/{{ job.total_stages }} stages
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

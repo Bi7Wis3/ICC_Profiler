@@ -1,0 +1,45 @@
+{
+  "job_name": "example_colorimeter_job",
+  "printer_name": "Epson P900",
+  "printer_notes": "Driver color management OFF",
+  "paper_name": "Hahnemuhle Photo Rag",
+  "paper_notes": "",
+  "chart": {
+    "colorspace": "RGB",
+    "patch_count": 120,
+    "grey_steps": 12,
+    "page_size": "A4",
+    "reader_type": "SS",
+    "extra_targen_args": [],
+    "extra_printtarg_args": [],
+    "raster_dpi": 300
+  },
+  "measurement": {
+    "method": "colorimeter_csv",
+    "scanner": {
+      "it8_reference_scan": "",
+      "it8_cgats_reference_file": "",
+      "it8_cht_file": "",
+      "test_chart_scan": ""
+    },
+    "colorimeter_csv": {
+      "csv_file": "jobs/example_colorimeter_job/02_measurements/ds173_export.csv",
+      "column_map": {
+        "patch_id": "Name",
+        "L": "L*",
+        "a": "a*",
+        "b": "b*"
+      }
+    }
+  },
+  "output": {
+    "profile_description": "Epson P900 / Hahnemuhle Photo Rag (DS-173 measured)",
+    "copyright": "",
+    "quality": "medium",
+    "algorithm": "auto",
+    "extra_colprof_args": []
+  },
+  "argyll": {
+    "bin_dir": null
+  }
+}
