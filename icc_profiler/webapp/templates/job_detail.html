@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% block title %}{{ job_name }} - ICC Profiler{% endblock %}
+{% block content %}
+<p><a href="/">&larr; All jobs</a></p>
+<h1>{{ job_name }}</h1>
+<p class="subtitle">{{ config.printer_name or "—" }} / {{ config.paper_name or "—" }}
+  &middot; <span class="badge badge-{{ config.measurement.method }}">{{ config.measurement.method }}</span></p>
+
+{% if ok %}<p class="flash flash-ok">{{ ok }}</p>{% endif %}
+{% if error %}<p class="flash flash-error">{{ error }}</p>{% endif %}
+
+<section class="card">
+  <h2>Pipeline stages</h2>
+  <table class="stage-table">
+    <thead><tr><th>Stage</th><th>Status</th><th>Actions</th></tr></thead>
+    <tbody>
+      {% for s in stage_rows %}
+      <tr>
+        <td>{{ s.name }}</td>
+        <td>{% if s.done %}<span class="pill pill-done">done</span>{% else %}<span class="pill pill-pending">pending</span>{% endif %}</td>
+        <td>
+          <form method="post" action="/jobs/{{ job_name }}/stage/{{ s.name }}" style="display:inline">
+            <button type="submit">{{ "Re-run" if s.done else "Run" }}</button>
+          </form>
+          <a href="/jobs/{{ job_name }}/logs/{{ s.name }}" target="_blank">log</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <form method="post" action="/jobs/{{ job_name }}/run" class="form-inline">
+    <button type="submit">Run all remaining stages</button>
+    <label><input type="checkbox" name="force" value="true"> force re-run everything</label>
+  </form>
+  <p><a href="/jobs/{{ job_name }}/results">View results &rarr;</a></p>
+</section>
+
+<section class="card">
+  <h2>Chart</h2>
+  {% if chart_files %}
+    {% for f in chart_files %}
+      <img class="chart-thumb" src="/jobs/{{ job_name }}/chart/preview/{{ f }}" alt="{{ f }}">
+    {% endfor %}
+    <p>
+      <a href="/jobs/{{ job_name }}/chart/download.pdf"><button type="button">Download PDF</button></a>
+    </p>
+    <p><small>Print the PDF at 100% / actual size — turn off "fit to page" or
+       "scale to fit" in your print dialog, and turn off any printer color
+       management, so the patches print at the true size and values.</small></p>
+  {% else %}
+    <p class="empty">No chart generated yet — run the "generate-chart" stage above.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  {% if config.measurement.method == "scanner" %}
+  <h2>Scanner measurements</h2>
+  <p class="warning">⚠ None of the uploads below are the chart TIFF/PDF generated above —
+     that file is for <strong>printing only</strong>. Every upload here is either a
+     <strong>scanned image</strong> of a physical printed page, or data that came from
+     your IT8 target's own packaging/vendor — never a file this tool generated.</p>
+
+  <h3>Step A — your physical IT8 reference target (one-time per target)</h3>
+  <p><small>Your IT8.7 target is a purchased calibration card with factory-measured
+     colors. This step is about <em>that card</em>, not your printer or the chart above.
+     Do it once; it's reused for every future job.</small></p>
+
+  <div class="form-row">
+    <form method="post" action="/jobs/{{ job_name }}/measurements/upload-it8-scan" enctype="multipart/form-data">
+      <label>A1. Scan of your physical IT8 target card (.tif)
+        <input type="file" name="file" accept=".tif,.tiff" required>
+      </label>
+      <button type="submit">Upload</button>
+      <small>Current: {{ config.measurement.scanner.it8_reference_scan.split('/')[-1] if config.measurement.scanner.it8_reference_scan else "none set" }}</small>
+    </form>
+  </div>
+
+  <form method="post" action="/jobs/{{ job_name }}/measurements/set-it8-reference-data" enctype="multipart/form-data" class="form">
+    <strong>A2. The IT8 target's known reference values</strong>
+    <small>A data file that came with your IT8 target (from the vendor/website), listing the
+       factory-measured color of every patch on that specific card. Required, no bundled option.</small>
+    <div class="form-row">
+      <label>Source
+        <select name="cgats_source">
+          <option value="upload">Upload new file</option>
+          {% if existing_reference_files %}<option value="reuse">Reuse a previously uploaded one</option>{% endif %}
+        </select>
+      </label>
+      <label>Upload vendor reference file
+        <input type="file" name="cgats_file">
+      </label>
+      {% if existing_reference_files %}
+      <label>...or reuse
+        <select name="existing_cgats_name">
+          {% for f in existing_reference_files %}<option value="{{ f }}">{{ f }}</option>{% endfor %}
+        </select>
+      </label>
+      {% endif %}
+    </div>
+
+    <strong>A3. Chart-recognition template (.cht) for your IT8 target's layout</strong>
+    <small>Most commercial IT8.7 targets use one of ArgyllCMS's built-in standard layouts
+       below — pick the matching one instead of hunting for a file. Only upload a custom
+       .cht if you know your target needs one (rare).</small>
+    <div class="form-row">
+      <label>Source
+        <select name="cht_source">
+          {% if bundled_cht_templates %}<option value="bundled">Use a built-in standard template</option>{% endif %}
+          <option value="upload">Upload a custom .cht</option>
+        </select>
+      </label>
+      {% if bundled_cht_templates %}
+      <label>Built-in template
+        <select name="bundled_cht_name">
+          {% for t in bundled_cht_templates %}
+          <option value="{{ t }}" {{ "selected" if "it8" in t.lower() }}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% endif %}
+      <label>...or upload custom
+        <input type="file" name="cht_file">
+      </label>
+    </div>
+    <button type="submit">Save IT8 reference data</button>
+    <small>Current: {{ config.measurement.scanner.it8_cgats_reference_file.split('/')[-1] if config.measurement.scanner.it8_cgats_reference_file else "none set" }}
+       / {{ config.measurement.scanner.it8_cht_file.split('/')[-1] if config.measurement.scanner.it8_cht_file else "none set" }}</small>
+  </form>
+
+  <h3>Step B — your printer's output (per job)</h3>
+  <p><small>This is about the chart you printed from <strong>this job</strong> — scan the
+     physical printed page, with the same scanner settings as the IT8 scan above.</small></p>
+  <div class="form-row">
+    <form method="post" action="/jobs/{{ job_name }}/measurements/upload-test-chart-scan" enctype="multipart/form-data">
+      <label>B1. Scan of the chart you printed (.tif)
+        <input type="file" name="file" accept=".tif,.tiff" required>
+      </label>
+      <button type="submit">Upload</button>
+      <small>Current: {{ config.measurement.scanner.test_chart_scan.split('/')[-1] if config.measurement.scanner.test_chart_scan else "none set" }}</small>
+    </form>
+  </div>
+  {% else %}
+  <h2>Colorimeter CSV import</h2>
+  <p>Print the chart above, measure every patch with the colorimeter, naming each
+     reading to match the strip/row label printed <em>next to that patch on the chart</em>
+     (e.g. "A14") — not any internal name — then export all readings as CSV and upload it here.</p>
+  <form method="post" action="/jobs/{{ job_name }}/measurements/upload-csv" enctype="multipart/form-data">
+    <label>Colorimeter CSV export
+      <input type="file" name="file" accept=".csv" required>
+    </label>
+    <button type="submit">Upload</button>
+    <small>Current: {{ config.measurement.colorimeter_csv.csv_file or "none" }}</small>
+  </form>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Custom target colors</h2>
+  <p><small>Colors you specifically care about — merged into the chart as real measured patches, not just checked after the fact.</small></p>
+  {% if colors %}
+  <table class="colors-table">
+    <thead><tr><th>Name</th><th>Device value</th><th>Target Lab (reference)</th><th></th></tr></thead>
+    <tbody>
+      {% for c in colors %}
+      <tr>
+        <td>{{ c.name }}</td>
+        <td>{{ c.device_value }}</td>
+        <td>{{ c.target_lab or "—" }}</td>
+        <td>
+          <form method="post" action="/jobs/{{ job_name }}/colors/remove" style="display:inline">
+            <input type="hidden" name="name" value="{{ c.name }}">
+            <button type="submit">Remove</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No custom colors yet.</p>
+  {% endif %}
+
+  <form method="post" action="/jobs/{{ job_name }}/colors/add" class="form">
+    <div class="form-row">
+      <label>Name <input type="text" name="name" required></label>
+      <label>Input
+        <select name="input_mode">
+          <option value="hex">Hex (RGB charts only)</option>
+          <option value="device">Raw device value</option>
+        </select>
+      </label>
+    </div>
+    <div class="form-row">
+      <label>Hex value <input type="text" name="hex_value" placeholder="#3366CC"></label>
+      <label>Device value <input type="text" name="device_value" placeholder="e.g. 51,102,204 or 65,22,0,11"></label>
+    </div>
+    <label>Target Lab (optional, for reference only) <input type="text" name="target_lab" placeholder="e.g. 45.2,12.1,-30.4"></label>
+    <button type="submit">Add target color</button>
+    <small>Note: this takes effect on the next "generate-chart" run (regenerating the chart).</small>
+  </form>
+</section>
+{% endblock %}

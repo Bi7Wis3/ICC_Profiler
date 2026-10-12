@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.ruff_cache/
+
+# Per-job working data and the shared IT8 reference library are user data,
+# not project source -- keep the directories tracked, not their contents.
+/jobs/*
+!/jobs/.gitkeep
+/shared/it8_references/*
+!/shared/it8_references/.gitkeep

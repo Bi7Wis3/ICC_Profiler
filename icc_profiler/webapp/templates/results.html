@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Results - {{ job_name }}{% endblock %}
+{% block content %}
+<p><a href="/jobs/{{ job_name }}">&larr; {{ job_name }}</a></p>
+<h1>Results: {{ job_name }}</h1>
+
+{% if not rows %}
+<p class="empty">No measurement data yet — run the measurement stage(s) for this job first.</p>
+{% else %}
+
+<section class="card">
+  <h2>Profile fit (profcheck)</h2>
+  {% if not icc_exists %}
+  <p class="empty">No .icc profile built yet — run "build-profile".</p>
+  {% elif not report %}
+  <p class="empty">No verification report yet — run "verify".</p>
+  {% else %}
+  <p>
+    Average &Delta;E: <strong>{{ report.average_de or "—" }}</strong> &middot;
+    Maximum &Delta;E: <strong>{{ report.maximum_de or "—" }}</strong> &middot;
+    RMS &Delta;E: <strong>{{ report.rms_de or "—" }}</strong>
+    <small>({{ report.patch_count }} patches)</small>
+  </p>
+  <p><small>This checks fit against the profile's own training data, not independent accuracy
+     (see the project's limitations in the README).</small></p>
+  <details><summary>Raw profcheck report</summary><pre class="log">{{ report.raw }}</pre></details>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Measured gamut (a*/b*)</h2>
+  <svg viewBox="0 0 400 400" width="400" height="400" class="gamut-plot">
+    <line x1="0" y1="200" x2="400" y2="200" stroke="#888" stroke-width="1"/>
+    <line x1="200" y1="0" x2="200" y2="400" stroke="#888" stroke-width="1"/>
+    {% for r in rows %}
+    <circle cx="{{ r.svg_x }}" cy="{{ r.svg_y }}"
+            r="{{ 6 if r.is_custom else 3 }}"
+            fill="{{ r.hex }}"
+            stroke="{{ '#000' if r.is_custom else 'none' }}"
+            stroke-width="{{ 1.5 if r.is_custom else 0 }}">
+      <title>{{ r.sample_id }}: L*{{ "%.1f"|format(r.L) }} a*{{ "%.1f"|format(r.a) }} b*{{ "%.1f"|format(r.b) }}</title>
+    </circle>
+    {% endfor %}
+  </svg>
+  <p><small>Each point is a measured chart patch, colored by its own measured Lab value.
+     Black-outlined points are your custom target colors.</small></p>
+</section>
+
+<section class="card">
+  <h2>Custom target colors</h2>
+  {% if not custom_rows %}
+  <p class="empty">No custom target colors were added to this chart.</p>
+  {% else %}
+  <table class="colors-table">
+    <thead><tr><th>Name</th><th>Measured Lab</th><th>Target Lab</th><th>Swatch</th></tr></thead>
+    <tbody>
+      {% for r in custom_rows %}
+      <tr>
+        <td>{{ r.sample_id[7:] }}</td>
+        <td>L*{{ "%.2f"|format(r.L) }} a*{{ "%.2f"|format(r.a) }} b*{{ "%.2f"|format(r.b) }}</td>
+        <td>{{ r.target_lab or "—" }}</td>
+        <td><span class="swatch" style="background:{{ r.hex }}"></span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+{% endif %}
+{% endblock %}

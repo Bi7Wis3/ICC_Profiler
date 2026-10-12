@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}New job - ICC Profiler{% endblock %}
+{% block content %}
+<h1>New profiling job</h1>
+
+{% if error %}<p class="flash flash-error">{{ error }}</p>{% endif %}
+
+<form method="post" action="/jobs/new" class="form">
+  <label>Job name
+    <input type="text" name="job_name" placeholder="epson_p900_hahnemuhle_photo_rag" required>
+  </label>
+  <small>One per printer+paper(+ink) combination. Used as the folder name, so keep it filesystem-safe.</small>
+
+  <div class="form-row">
+    <label>Printer <input type="text" name="printer_name" placeholder="Epson P900"></label>
+    <label>Paper <input type="text" name="paper_name" placeholder="Hahnemuhle Photo Rag"></label>
+  </div>
+
+  <label>Measurement method
+    <select name="method">
+      <option value="scanner">Flatbed/consumer scanner (free, needs an IT8 reference target)</option>
+      <option value="colorimeter_csv">Colorimeter CSV import (e.g. CHNSpec DS-173 — manual per-patch, more accurate)</option>
+    </select>
+  </label>
+
+  <fieldset>
+    <legend>Chart generation</legend>
+    <div class="form-row">
+      <label>Colorspace
+        <select name="colorspace">
+          <option value="RGB">RGB</option>
+          <option value="CMYK">CMYK</option>
+          <option value="GRAY">Gray</option>
+        </select>
+      </label>
+      <label>Page size <input type="text" name="page_size" value="A4"></label>
+    </div>
+    <div class="form-row">
+      <label>Patch count <input type="number" name="patch_count" value="250" min="12"></label>
+      <label>Grey steps <input type="number" name="grey_steps" value="16" min="2"></label>
+    </div>
+    <small>For colorimeter-CSV jobs, prefer a lower patch count (e.g. 100-150) — every patch is measured by hand.</small>
+  </fieldset>
+
+  <button type="submit">Create job</button>
+</form>
+{% endblock %}
