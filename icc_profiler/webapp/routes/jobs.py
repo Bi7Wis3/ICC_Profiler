@@ -129,6 +129,73 @@ def duplicate_as_colorimeter(job_name: str):
     )
 
 
+def _parse_args_list(text: str) -> list[str]:
+    return text.split()
+
+
+@router.get("/jobs/{job_name}/edit")
+def edit_job_form(request: Request, job_name: str):
+    config = load_config(job_name)
+    return templates.TemplateResponse(
+        request, "job_edit.html", {"config": config, "job_name": job_name, "error": None}
+    )
+
+
+@router.post("/jobs/{job_name}/edit")
+def edit_job(
+    request: Request,
+    job_name: str,
+    printer_name: str = Form(""),
+    printer_notes: str = Form(""),
+    paper_name: str = Form(""),
+    paper_notes: str = Form(""),
+    colorspace: str = Form("RGB"),
+    patch_count: int = Form(250),
+    grey_steps: int = Form(16),
+    page_size: str = Form("A4"),
+    reader_type: str = Form("SS"),
+    raster_dpi: int = Form(300),
+    extra_targen_args: str = Form(""),
+    extra_printtarg_args: str = Form(""),
+    profile_description: str = Form(""),
+    copyright: str = Form(""),
+    quality: str = Form("medium"),
+    algorithm: str = Form("auto"),
+    extra_colprof_args: str = Form(""),
+    bin_dir: str = Form(""),
+):
+    config = load_config(job_name)
+    config.printer_name = printer_name
+    config.printer_notes = printer_notes
+    config.paper_name = paper_name
+    config.paper_notes = paper_notes
+    config.chart.colorspace = colorspace
+    config.chart.patch_count = patch_count
+    config.chart.grey_steps = grey_steps
+    config.chart.page_size = page_size
+    config.chart.reader_type = reader_type
+    config.chart.raster_dpi = raster_dpi
+    config.chart.extra_targen_args = _parse_args_list(extra_targen_args)
+    config.chart.extra_printtarg_args = _parse_args_list(extra_printtarg_args)
+    config.output.profile_description = profile_description
+    config.output.copyright = copyright
+    config.output.quality = quality
+    config.output.algorithm = algorithm
+    config.output.extra_colprof_args = _parse_args_list(extra_colprof_args)
+    config.argyll.bin_dir = bin_dir or None
+
+    try:
+        config.validate()
+    except PipelineError as exc:
+        return templates.TemplateResponse(
+            request, "job_edit.html", {"config": config, "job_name": job_name, "error": str(exc)}, status_code=400
+        )
+    config.save(job_dir(job_name) / "config.json")
+    return RedirectResponse(
+        f"/jobs/{job_name}?{'ok=' + quote('Settings updated.')}", status_code=303
+    )
+
+
 @router.post("/jobs/{job_name}/delete")
 def delete_job(job_name: str):
     jd = job_dir(job_name)
