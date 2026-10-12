@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import re
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse
 
 from icc_profiler import cgats, target_colors
 from icc_profiler.color_convert import lab_to_hex
@@ -10,6 +11,17 @@ from icc_profiler.stages import icc_path, profile_dir, ti3_path
 from icc_profiler.webapp.common import job_dir, load_config, templates
 
 router = APIRouter()
+
+
+@router.get("/jobs/{job_name}/profile.icc")
+def download_icc_profile(job_name: str):
+    config = load_config(job_name)
+    path = icc_path(job_dir(job_name), config)
+    if not path.is_file():
+        raise HTTPException(404, "No .icc profile built yet for this job -- run 'build-profile' first.")
+    return FileResponse(
+        path, media_type="application/vnd.iccprofile", filename=f"{job_name}.icc"
+    )
 
 #   No of test patches = 21
 #   Profile check complete, errors: max. = 14.938801, avg. = 7.640107, RMS = 8.800242

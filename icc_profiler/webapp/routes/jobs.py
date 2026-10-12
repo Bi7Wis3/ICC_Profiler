@@ -9,6 +9,7 @@ from fastapi.responses import RedirectResponse
 from icc_profiler import stages, state, target_colors
 from icc_profiler.config import ChartConfig, JobConfig, MeasurementConfig, OutputConfig
 from icc_profiler.errors import PipelineError
+from icc_profiler.stages import icc_path
 from icc_profiler.webapp.common import JOBS_ROOT, job_dir, list_jobs, load_config, templates
 from icc_profiler.webapp.routes.chart import list_chart_tiffs
 from icc_profiler.webapp.routes.measurements import (
@@ -158,6 +159,7 @@ def job_detail(request: Request, job_name: str):
             "chart_files": chart_files,
             "bundled_cht_templates": list_bundled_cht_templates(),
             "existing_reference_files": list_existing_reference_files(),
+            "icc_exists": icc_path(jd, config).is_file(),
             "ok": request.query_params.get("ok"),
             "error": request.query_params.get("error"),
         },
