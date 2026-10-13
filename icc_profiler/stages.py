@@ -208,9 +208,13 @@ def build_scanner_profile(job_dir: Path, config: JobConfig) -> None:
     _require_set(m.it8_reference_scan, "IT8 reference target scan")
     _require_set(m.it8_cht_file, "IT8 chart-recognition template (.cht)")
     _require_set(m.it8_cgats_reference_file, "IT8 vendor CGATS reference file")
-    it8_scan = Path(m.it8_reference_scan)
-    it8_cht = Path(m.it8_cht_file)
-    it8_ref = Path(m.it8_cgats_reference_file)
+    # .resolve() -- these come from the job config as paths relative to
+    # wherever the user ran the command from, but the Argyll subprocess
+    # below runs with cwd=out_dir, so a relative path here would resolve
+    # against the wrong directory.
+    it8_scan = Path(m.it8_reference_scan).resolve()
+    it8_cht = Path(m.it8_cht_file).resolve()
+    it8_ref = Path(m.it8_cgats_reference_file).resolve()
     _require_file(it8_scan, "IT8 reference target scan")
     _require_file(it8_cht, "IT8 chart-recognition template (.cht)")
     _require_file(it8_ref, "IT8 vendor CGATS reference file")
@@ -263,7 +267,7 @@ def read_chart(job_dir: Path, config: JobConfig) -> None:
     _require_done(job_dir, "build-scanner-profile")
     m = config.measurement.scanner
     _require_set(m.test_chart_scan, "test chart scan")
-    test_scan = Path(m.test_chart_scan)
+    test_scan = Path(m.test_chart_scan).resolve()
     _require_file(test_scan, "test chart scan")
     _require_file(cht_path(job_dir, config), ".cht from generate-chart")
     _require_file(ti2_path(job_dir, config), ".ti2 from generate-chart")

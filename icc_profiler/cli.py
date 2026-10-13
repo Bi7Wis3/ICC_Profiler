@@ -14,7 +14,7 @@ DEFAULT_JOBS_ROOT = Path("jobs")
 
 
 def _job_dir(args: argparse.Namespace) -> Path:
-    return Path(args.jobs_root) / args.job
+    return Path(args.jobs_root).resolve() / args.job
 
 
 def _load_config(args: argparse.Namespace) -> JobConfig:
@@ -36,7 +36,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 def cmd_init_job(args: argparse.Namespace) -> int:
     template = json.loads(Path(args.config).read_text())
     config = JobConfig.from_dict(template)
-    job_dir = stages.init_job(Path(args.jobs_root), config)
+    job_dir = stages.init_job(Path(args.jobs_root).resolve(), config)
     print(f"Job {config.job_name!r} initialized at {job_dir}")
     return 0
 
