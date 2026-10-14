@@ -7,12 +7,14 @@ from fastapi.templating import Jinja2Templates
 
 from icc_profiler import state
 from icc_profiler.config import JobConfig
+from icc_profiler.webapp.branding import load_branding
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 JOBS_ROOT = PROJECT_ROOT / "jobs"
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates.env.globals["branding"] = load_branding()
 
 
 def job_dir(job_name: str) -> Path:
