@@ -6,7 +6,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import RedirectResponse
 
-from icc_profiler import stages, state, target_colors
+from icc_profiler import manual_scan, stages, state, target_colors
 from icc_profiler.config import ChartConfig, JobConfig, MeasurementConfig, OutputConfig
 from icc_profiler.errors import PipelineError
 from icc_profiler.stages import icc_path
@@ -224,6 +224,16 @@ def job_detail(request: Request, job_name: str):
     stage_rows = [{"name": s, "done": state.is_done(st, s)} for s in order]
     colors = target_colors.load(jd)
     chart_files = list_chart_tiffs(job_name)
+
+    manual_scan_progress = None
+    try:
+        patches = manual_scan.chart_patches(jd, config)
+        done = len(manual_scan.load_progress(jd))
+        if done:
+            manual_scan_progress = {"done": done, "total": len(patches)}
+    except Exception:  # noqa: BLE001 - best-effort summary, never break the page
+        manual_scan_progress = None
+
     return templates.TemplateResponse(
         request,
         "job_detail.html",
@@ -236,6 +246,7 @@ def job_detail(request: Request, job_name: str):
             "bundled_cht_templates": list_bundled_cht_templates(),
             "existing_reference_files": list_existing_reference_files(),
             "icc_exists": icc_path(jd, config).is_file(),
+            "manual_scan_progress": manual_scan_progress,
             "ok": request.query_params.get("ok"),
             "error": request.query_params.get("error"),
         },

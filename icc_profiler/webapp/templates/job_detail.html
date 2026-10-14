@@ -168,6 +168,13 @@
     <button type="submit">Upload</button>
     <small>Current: {{ config.measurement.colorimeter_csv.csv_file or "none" }}</small>
   </form>
+
+  <p style="margin-top:14px"><strong>Or</strong> scan patches one at a time in the browser,
+     reading each value off the colorimeter's own screen/app:</p>
+  <a href="/jobs/{{ job_name }}/measurements/scan"><button type="button">Start guided patch scan</button></a>
+  {% if manual_scan_progress %}
+  <small>In progress: {{ manual_scan_progress.done }}/{{ manual_scan_progress.total }} patches measured.</small>
+  {% endif %}
   {% endif %}
 </section>
 

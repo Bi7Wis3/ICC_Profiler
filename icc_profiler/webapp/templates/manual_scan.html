@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Scan {{ job_name }} - {{ branding.app_name }}{% endblock %}
+{% block content %}
+<p><a href="/jobs/{{ job_name }}">&larr; {{ job_name }}</a></p>
+
+<section class="card">
+  <h2>Manual colorimeter scan</h2>
+  <p><small>Measure each patch on the printed chart with your colorimeter, read the
+     L*/a*/b* value off its screen or app, and type it in here. This builds the same
+     CSV the bulk-upload path expects, one patch at a time.</small></p>
+
+  <p>
+    <span class="progress"><span class="progress-bar{% if done_count == total_count %} complete{% endif %}"
+      style="width: {{ (done_count / total_count * 100) if total_count else 0 }}%"></span></span>
+    {{ done_count }}/{{ total_count }} patches measured
+  </p>
+
+  {% if error %}<p class="flash flash-error">{{ error }}</p>{% endif %}
+
+  <div class="form-row" style="align-items:flex-start">
+    <div style="display:flex; align-items:center; gap:16px; flex:none">
+      <span style="display:inline-block; width:72px; height:72px; border-radius:10px;
+        border:1px solid var(--border); background:{{ current.swatch_hex or 'transparent' }}"></span>
+      <div>
+        <h3 style="margin:0">Patch {{ current.loc }}</h3>
+        {% if current.sample_id and current.sample_id.startswith("CUSTOM_") %}
+        <small>{{ current.sample_id }}</small><br>
+        {% endif %}
+        <span class="pill {{ 'pill-done' if current.done else 'pill-pending' }}">
+          {{ "measured" if current.done else "pending" }}
+        </span>
+      </div>
+    </div>
+
+    <form method="post" action="/jobs/{{ job_name }}/measurements/scan/submit" class="form" style="flex:1; min-width:260px">
+      <input type="hidden" name="patch_loc" value="{{ current.loc }}">
+      <input type="hidden" name="next_patch" value="{{ next_row.loc if next_row else current.loc }}">
+      <div class="form-row">
+        <label>L* <input type="number" step="0.01" name="L" value="{{ current.L if current.L is not none else '' }}" required></label>
+        <label>a* <input type="number" step="0.01" name="a" value="{{ current.a if current.a is not none else '' }}" required></label>
+        <label>b* <input type="number" step="0.01" name="b" value="{{ current.b if current.b is not none else '' }}" required></label>
+      </div>
+      <button type="submit">Save &amp; next</button>
+    </form>
+  </div>
+
+  <p class="form-inline">
+    {% if prev_row %}<a href="?patch={{ prev_row.loc }}">&larr; {{ prev_row.loc }}</a>{% endif %}
+    {% if current.done %}
+    <form method="post" action="/jobs/{{ job_name }}/measurements/scan/clear" style="display:inline">
+      <input type="hidden" name="patch_loc" value="{{ current.loc }}">
+      <button type="submit">Clear this reading</button>
+    </form>
+    {% endif %}
+    {% if next_row %}<a href="?patch={{ next_row.loc }}">{{ next_row.loc }} &rarr;</a>{% endif %}
+  </p>
+</section>
+
+<section class="card">
+  <h3>All patches</h3>
+  <div class="patch-grid">
+    {% for row in rows %}
+    <a href="?patch={{ row.loc }}" class="patch-cell {{ 'pill-done' if row.done else 'pill-pending' }}{% if row.loc == current.loc %} patch-cell-current{% endif %}"
+       title="{{ row.loc }}{{ ' - ' + row.sample_id if row.sample_id.startswith('CUSTOM_') else '' }}">{{ row.loc }}</a>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="card">
+  <form method="post" action="/jobs/{{ job_name }}/measurements/scan/finish">
+    <button type="submit" {% if done_count < total_count %}disabled{% endif %}>
+      Finish &amp; write CSV ({{ done_count }}/{{ total_count }})
+    </button>
+    {% if done_count < total_count %}
+    <small>Measure the remaining {{ total_count - done_count }} patch(es) before finishing.</small>
+    {% else %}
+    <small>This writes/overwrites this job's colorimeter CSV export.</small>
+    {% endif %}
+  </form>
+</section>
+{% endblock %}

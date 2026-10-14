@@ -20,14 +20,11 @@ def _gamma(c: float) -> float:
     return 12.92 * c if c <= 0.0031308 else 1.055 * (c ** (1 / 2.4)) - 0.055
 
 
-def lab_to_srgb(L: float, a: float, b: float) -> tuple[int, int, int]:
-    fy = (L + 16) / 116
-    fx = fy + a / 500
-    fz = fy - b / 200
-
-    X = _XN * _finv(fx) / 100
-    Y = _YN * _finv(fy) / 100
-    Z = _ZN * _finv(fz) / 100
+def xyz_to_srgb(X: float, Y: float, Z: float) -> tuple[int, int, int]:
+    """X/Y/Z on the usual 0-100 scale (D65 white ~= 95.047, 100.0, 108.883),
+    matching both this module's Lab conversion and the XYZ_* columns ArgyllCMS
+    writes into .ti1/.ti2 files."""
+    X, Y, Z = X / 100, Y / 100, Z / 100
 
     r = X * 3.2406 + Y * -1.5372 + Z * -0.4986
     g = X * -0.9689 + Y * 1.8758 + Z * 0.0415
@@ -36,6 +33,23 @@ def lab_to_srgb(L: float, a: float, b: float) -> tuple[int, int, int]:
     r, g, bl = _gamma(r), _gamma(g), _gamma(bl)
     clamp = lambda v: max(0, min(255, round(v * 255)))  # noqa: E731
     return clamp(r), clamp(g), clamp(bl)
+
+
+def xyz_to_hex(X: float, Y: float, Z: float) -> str:
+    r, g, b = xyz_to_srgb(X, Y, Z)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def lab_to_srgb(L: float, a: float, b: float) -> tuple[int, int, int]:
+    fy = (L + 16) / 116
+    fx = fy + a / 500
+    fz = fy - b / 200
+
+    X = _XN * _finv(fx)
+    Y = _YN * _finv(fy)
+    Z = _ZN * _finv(fz)
+
+    return xyz_to_srgb(X, Y, Z)
 
 
 def lab_to_hex(L: float, a: float, b: float) -> str:
