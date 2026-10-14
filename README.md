@@ -17,13 +17,20 @@ resulting `.icc` profile.
 
 | | **Scanner** | **Colorimeter CSV import** |
 |---|---|---|
-| Hardware | A flatbed/consumer scanner you likely already own | A real colorimeter/spectrophotometer not natively driven by ArgyllCMS (e.g. CHNSpec DS-173) |
+| Hardware | A flatbed/consumer scanner you likely already own | A real colorimeter/spectrophotometer not natively driven by ArgyllCMS (e.g. CHNSpec DS-173, 3nh PS110) |
 | Extra prerequisite | A physical IT8.7 reference target + its vendor CGATS reference data | None |
 | Effort per profile | One scan of the chart + one scan of the IT8 target | Measuring every chart patch individually by hand |
 | Accuracy | Capped by scanner characterization quality | Meaningfully higher — real colorimetric measurement |
 
 Pick per job. Both produce the same `.ti3` measurement format and feed the
 same `colprof`/`profcheck` steps.
+
+Example colorimeter: the [3nh PS110](https://www.3nh.com) handheld
+spectrocolorimeter (D/8, SCI, CIE LAB, USB/Bluetooth, ships with the SQCX PC
+app) — measure each patch with its own app/software, export the readings as
+CSV, then upload that CSV per the colorimeter-CSV workflow below. Any
+device that can export a CSV of per-patch readings works the same way; this
+project talks to it only through that CSV, not through any vendor API.
 
 ## Install
 
