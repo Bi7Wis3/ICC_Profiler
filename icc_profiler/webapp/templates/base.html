@@ -3,16 +3,35 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}ICC Profiler{% endblock %}</title>
+  <title>{% block title %}Rollenco ICC Profiler{% endblock %}</title>
+  <meta name="color-scheme" content="dark light">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="/static/images/Logo.png">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <header class="topbar">
-    <a class="brand" href="/">ICC Profiler</a>
-    <nav><a href="/jobs/new">+ New job</a></nav>
-  </header>
-  <main>
-    {% block content %}{% endblock %}
-  </main>
+  <div class="container">
+    <header class="topbar">
+      <div class="brand-block">
+        <a href="/"><img class="brand-logo" src="/static/images/Logo.png" alt="Rollenco"></a>
+        <div class="brand-text">
+          <h1>Rollenco ICC Profiler</h1>
+          <p class="subtitle">Custom ICC printer profile builder</p>
+        </div>
+      </div>
+      <nav>
+        <a href="/">All jobs</a>
+        <a href="/jobs/new">+ New job</a>
+        <button type="button" id="theme-btn" class="btn-theme"><span id="theme-name">—</span></button>
+      </nav>
+    </header>
+    <main>
+      {% block content %}{% endblock %}
+    </main>
+    <footer>Rollenco ICC Profiler &middot; By <a href="https://kixx-customs.net">Bitwise</a> &amp; Claude</footer>
+  </div>
+  <script src="/static/js/theme.js"></script>
 </body>
 </html>
