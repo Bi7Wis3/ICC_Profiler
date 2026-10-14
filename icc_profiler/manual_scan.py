@@ -68,9 +68,17 @@ def clear_reading(job_dir: Path, patch_loc: str) -> dict[str, dict]:
 
 
 def chart_patches(job_dir: Path, config: JobConfig) -> list[dict]:
-    """Ordered list of this job's chart patches, in the order .ti2 (i.e.
-    printtarg) lists them, each with an approximate target-color swatch
-    computed from the row's own XYZ_* estimate."""
+    """Ordered list of this job's chart patches, sorted by the printed
+    SAMPLE_LOC label (e.g. A1, A2, ... B1, B2, ...) -- the physical order a
+    person would walk across the printed page -- each with an approximate
+    target-color swatch computed from the row's own XYZ_* estimate.
+
+    NOT .ti2 file order: targen deliberately randomizes which physical strip
+    position each patch lands in (confirmed via the .ti2 header's
+    RANDOM_START field) to avoid spatial bias for scanner-based reading,
+    which is irrelevant for scanin but means file order jumps all over the
+    page for a human measuring one patch at a time.
+    """
     path = ti2_path(job_dir, config)
     if not path.is_file():
         raise PipelineError(f"{path} does not exist yet -- run 'generate-chart' first")
@@ -85,6 +93,9 @@ def chart_patches(job_dir: Path, config: JobConfig) -> list[dict]:
             except ValueError:
                 swatch_hex = None
         patches.append({"loc": row["SAMPLE_LOC"], "sample_id": row["SAMPLE_ID"], "swatch_hex": swatch_hex})
+    # Same natural-sort key as csv_import.py's missing-patch listing, so
+    # patch ordering reads the same way everywhere in this project.
+    patches.sort(key=lambda p: (len(p["loc"]), p["loc"]))
     return patches
 
 
