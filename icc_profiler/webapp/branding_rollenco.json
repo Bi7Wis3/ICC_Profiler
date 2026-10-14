@@ -1,0 +1,9 @@
+{
+  "app_name": "Rollenco ICC Profiler",
+  "short_name": "Rollenco",
+  "header_title": "ICC Profiler",
+  "tagline": "Custom ICC printer profile builder",
+  "logo": "/static/images/Logo_rollenco.png",
+  "footer_credit_name": "Bi7wis3",
+  "footer_credit_url": "https://www.rollenco.com"
+}

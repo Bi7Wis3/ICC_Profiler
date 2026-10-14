@@ -3,22 +3,22 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Rollenco ICC Profiler{% endblock %}</title>
+  <title>{% block title %}{{ branding.app_name }}{% endblock %}</title>
   <meta name="color-scheme" content="dark light">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="icon" href="/static/images/Logo.png">
+  <link rel="icon" href="{{ branding.logo }}">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <div class="container">
     <header class="topbar">
       <div class="brand-block">
-        <a href="/"><img class="brand-logo" src="/static/images/Logo.png" alt="Rollenco"></a>
+        <a href="/"><img class="brand-logo" src="{{ branding.logo }}" alt="{{ branding.short_name }}"></a>
         <div class="brand-text">
-          <h1>Rollenco ICC Profiler</h1>
-          <p class="subtitle">Custom ICC printer profile builder</p>
+          <h1>{{ branding.header_title }}</h1>
+          <p class="subtitle">{{ branding.tagline }}</p>
         </div>
       </div>
       <nav>
@@ -30,7 +30,7 @@
     <main>
       {% block content %}{% endblock %}
     </main>
-    <footer>Rollenco ICC Profiler &middot; By <a href="https://kixx-customs.net">Bitwise</a> &amp; Claude</footer>
+    <footer>{{ branding.app_name }} &middot; By <a href="{{ branding.footer_credit_url }}">{{ branding.footer_credit_name }}</a> </footer>
   </div>
   <script src="/static/js/theme.js"></script>
   {% block scripts %}{% endblock %}
