@@ -11,6 +11,8 @@ chart (optionally including specific colors you care about as real measured
 patches), printing it, measuring the print, and building + verifying the
 resulting `.icc` profile.
 
+![Main page](docs/images/mainpage.png)
+
 ## Two measurement methods
 
 | | **Scanner** | **Colorimeter CSV import** |
@@ -68,6 +70,10 @@ continue.
 ```
 uvicorn icc_profiler.webapp.app:app --reload
 ```
+
+Or, to skip activating the venv yourself: `./start_profiler.sh` (runs the
+same command via the project's `.venv`; any extra arguments are passed
+through to uvicorn, e.g. `./start_profiler.sh --port 8080`).
 
 Open `http://localhost:8000`. Create a job, pick a measurement method, add
 any custom target colors, generate the chart, print it, upload your
