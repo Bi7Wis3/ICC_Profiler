@@ -197,25 +197,49 @@
   <p class="empty">No custom colors yet.</p>
   {% endif %}
 
+  <div class="color-picker" data-colorspace="{{ config.chart.colorspace }}">
+    <label>Pick color from a PDF
+      <input type="file" id="color-picker-file" accept=".pdf,application/pdf">
+    </label>
+    <p><small>Open a PDF (e.g. a printed chart or proof) and click anywhere on the rendered
+       page below to sample that pixel's color into the fields in the form below. The sampled
+       value is approximate &mdash; it's the on-screen color of the rendered page, not a direct
+       device measurement.</small></p>
+    <div id="color-picker-preview" class="color-picker-preview" hidden>
+      <div>
+        <canvas id="color-picker-canvas"></canvas>
+        <div id="color-picker-page-controls" class="color-picker-page-controls" hidden>
+          <label>Page <input type="number" id="color-picker-page" min="1" value="1"></label>
+          / <span id="color-picker-page-total">1</span>
+          <button type="button" id="color-picker-page-go">Go</button>
+        </div>
+      </div>
+      <div class="color-picker-readout">
+        <span id="color-picker-swatch" class="color-swatch"></span>
+        <span id="color-picker-value">&mdash;</span>
+      </div>
+    </div>
+  </div>
+
   <form method="post" action="/jobs/{{ job_name }}/colors/add" class="form">
     <label>Name <input type="text" name="name" required></label>
 
     {% if config.chart.colorspace == "CMYK" %}
     <input type="hidden" name="input_mode" value="cmyk">
     <div class="form-row">
-      <label>C % <input type="number" name="cmyk_c" min="0" max="100" step="0.1" required></label>
-      <label>M % <input type="number" name="cmyk_m" min="0" max="100" step="0.1" required></label>
-      <label>Y % <input type="number" name="cmyk_y" min="0" max="100" step="0.1" required></label>
-      <label>K % <input type="number" name="cmyk_k" min="0" max="100" step="0.1" required></label>
+      <label>C % <input type="number" name="cmyk_c" id="color-field-cmyk-c" min="0" max="100" step="0.1" required></label>
+      <label>M % <input type="number" name="cmyk_m" id="color-field-cmyk-m" min="0" max="100" step="0.1" required></label>
+      <label>Y % <input type="number" name="cmyk_y" id="color-field-cmyk-y" min="0" max="100" step="0.1" required></label>
+      <label>K % <input type="number" name="cmyk_k" id="color-field-cmyk-k" min="0" max="100" step="0.1" required></label>
     </div>
     <small>Device percentages (0-100), matching this job's CMYK colorspace.</small>
     {% elif config.chart.colorspace == "GRAY" %}
     <input type="hidden" name="input_mode" value="gray">
-    <label>K % <input type="number" name="gray_value" min="0" max="100" step="0.1" required></label>
+    <label>K % <input type="number" name="gray_value" id="color-field-gray" min="0" max="100" step="0.1" required></label>
     <small>Device percentage (0-100), matching this job's Gray colorspace.</small>
     {% else %}
     <input type="hidden" name="input_mode" value="hex">
-    <label>Hex value <input type="text" name="hex_value" placeholder="#3366CC"></label>
+    <label>Hex value <input type="text" name="hex_value" id="color-field-hex" placeholder="#3366CC"></label>
     <small>RGB device color, matching this job's RGB colorspace.</small>
     {% endif %}
 
@@ -224,4 +248,8 @@
     <small>Note: this takes effect on the next "generate-chart" run (regenerating the chart).</small>
   </form>
 </section>
+{% endblock %}
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.5.141/pdf.min.js"></script>
+<script src="/static/js/color_picker.js"></script>
 {% endblock %}

@@ -177,6 +177,15 @@ input:focus, select:focus { outline: none; border-color: var(--primary); }
 input::placeholder { color: var(--text-light); opacity: 0.7; }
 select option { background: var(--dropdown-bg); color: var(--text); }
 
+.color-picker { margin-bottom: 1.2rem; }
+.color-picker-preview { display: flex; align-items: flex-start; gap: 16px; margin-top: 10px; flex-wrap: wrap; }
+.color-picker-preview canvas { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; cursor: crosshair; display: block; }
+.color-picker-page-controls { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 0.85em; color: var(--text-light); }
+.color-picker-page-controls label { flex-direction: row; align-items: center; gap: 6px; }
+.color-picker-page-controls input { width: 3.5em; padding: 0.3rem 0.5rem; }
+.color-picker-readout { display: flex; align-items: center; gap: 10px; font-size: 0.9em; color: var(--text-light); max-width: 260px; }
+.color-swatch { flex: none; display: inline-block; width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--border); background: transparent; }
+
 button {
   padding: 0.7rem 1.4rem;
   border: none;
