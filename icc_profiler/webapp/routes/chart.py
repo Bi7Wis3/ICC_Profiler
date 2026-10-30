@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+from pathlib import Path
 
 import img2pdf
 from fastapi import APIRouter, HTTPException
@@ -22,8 +23,13 @@ def list_chart_tiffs(job_name: str) -> list[str]:
 
 @router.get("/jobs/{job_name}/chart/preview/{filename}")
 def chart_preview_png(job_name: str, filename: str):
-    path = chart_dir(job_dir(job_name)) / filename
-    if not path.is_file() or path.suffix.lower() not in (".tif", ".tiff"):
+    if filename not in list_chart_tiffs(job_name):
+        raise HTTPException(404, "Chart image not found")
+    return preview_png(chart_dir(job_dir(job_name)) / filename)
+
+
+def preview_png(path: Path) -> Response:
+    if not path.is_file():
         raise HTTPException(404, "Chart image not found")
     try:
         with Image.open(path) as im:
@@ -69,13 +75,17 @@ def chart_download_pdf(job_name: str):
         raise HTTPException(404, "No chart generated yet for this job")
 
     d = chart_dir(job_dir(job_name))
+    return pdf_response([d / name for name in files], f"{job_name}_chart.pdf")
+
+
+def pdf_response(pages: list[Path], filename: str) -> Response:
     try:
-        pdf_bytes = img2pdf.convert(*[str(d / name) for name in files])
+        pdf_bytes = img2pdf.convert(*[str(p) for p in pages])
     except Exception as exc:  # noqa: BLE001 - surface a readable error, not a 500 traceback
         raise HTTPException(500, f"Could not build PDF: {exc}") from exc
 
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{job_name}_chart.pdf"'},
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

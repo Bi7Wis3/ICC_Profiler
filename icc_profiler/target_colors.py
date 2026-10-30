@@ -20,6 +20,7 @@ from pathlib import Path
 
 from icc_profiler.cgats import CgatsTable, read_tables, write_tables
 from icc_profiler.errors import PipelineError
+from icc_profiler.names import safe_name, slugify
 
 TARGET_COLORS_FILENAME = "target_colors.json"
 
@@ -47,7 +48,19 @@ def save(job_dir: Path, colors: list[dict]) -> None:
     target_colors_path(job_dir).write_text(json.dumps(colors, indent=2))
 
 
+def sample_id_for(name: str) -> str:
+    """The chart SAMPLE_ID for a custom color. Names are validated on add(),
+    but colors saved before that may contain spaces etc., which would split
+    the unquoted CGATS row -- slugify keeps those working."""
+    return f"CUSTOM_{slugify(name)}"
+
+
 def add(job_dir: Path, name: str, device_value: list[float], target_lab: list[float] | None = None) -> list[dict]:
+    name = safe_name(name, "Color name")
+    if any(not (0 <= v <= 100) for v in device_value):
+        raise PipelineError(f"Device values {device_value} must each be between 0 and 100 (percent)")
+    if target_lab is not None and len(target_lab) != 3:
+        raise PipelineError(f"Target Lab must be three numbers L,a,b (got {target_lab})")
     colors = load(job_dir)
     if any(c["name"] == name for c in colors):
         raise PipelineError(f"A target color named {name!r} already exists in this job")
@@ -128,7 +141,7 @@ def merge_into_ti1(ti1_path: Path, colors: list[dict], colorspace: str) -> list[
                 f"values but colorspace {colorspace} expects {len(device_fields)} "
                 f"({device_fields})"
             )
-        sample_id = f"CUSTOM_{color['name']}"
+        sample_id = sample_id_for(color["name"])
         if sample_id in existing_names:
             raise PipelineError(f"Chart already has a patch with SAMPLE_ID {sample_id!r}")
         existing_names.add(sample_id)

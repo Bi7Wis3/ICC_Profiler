@@ -5,9 +5,10 @@ from urllib.parse import quote
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import RedirectResponse
 
-from icc_profiler import manual_scan, state
+from icc_profiler import manual_scan, stages, state
+from icc_profiler.config import store_path
 from icc_profiler.errors import PipelineError
-from icc_profiler.webapp.common import job_dir, load_config, templates
+from icc_profiler.webapp.common import cleared_note, job_dir, load_config, require_idle, templates
 
 router = APIRouter()
 
@@ -44,7 +45,7 @@ def _pick_current(rows: list[dict], requested_loc: str | None) -> dict:
 def scan_page(request: Request, job_name: str, patch: str | None = None, error: str | None = None):
     jd = job_dir(job_name)
     config = load_config(job_name)
-    if not state.is_done(state.load_state(jd), "generate-chart"):
+    if not state.is_done(stages.load_state(jd, config), "generate-chart"):
         return _redirect(job_name, False, "Generate the chart before starting a manual scan.")
 
     try:
@@ -69,6 +70,7 @@ def scan_page(request: Request, job_name: str, patch: str | None = None, error: 
             "done_count": done_count,
             "total_count": len(rows),
             "error": error,
+            "stale_readings": manual_scan.is_stale(jd, config),
         },
     )
 
@@ -83,8 +85,9 @@ def submit_patch(
     next_patch: str = Form(""),
 ):
     jd = job_dir(job_name)
+    config = load_config(job_name)
     try:
-        manual_scan.record_reading(jd, patch_loc, L, a, b)
+        manual_scan.record_reading(jd, config, patch_loc, L, a, b)
     except PipelineError as exc:
         return _scan_redirect(job_name, patch_loc=patch_loc, error=str(exc))
     return _scan_redirect(job_name, patch_loc=next_patch or None)
@@ -93,7 +96,7 @@ def submit_patch(
 @router.post("/jobs/{job_name}/measurements/scan/clear")
 def clear_patch(job_name: str, patch_loc: str = Form(...)):
     jd = job_dir(job_name)
-    manual_scan.clear_reading(jd, patch_loc)
+    manual_scan.clear_reading(jd, load_config(job_name), patch_loc)
     return _scan_redirect(job_name, patch_loc=patch_loc)
 
 
@@ -102,9 +105,11 @@ def finish_scan(job_name: str):
     jd = job_dir(job_name)
     config = load_config(job_name)
     try:
+        require_idle(job_name)
         dest = manual_scan.write_csv(jd, config, config.measurement.colorimeter_csv.column_map)
     except PipelineError as exc:
         return _scan_redirect(job_name, error=str(exc))
-    config.measurement.colorimeter_csv.csv_file = str(dest)
+    config.measurement.colorimeter_csv.csv_file = store_path(dest, jd)
     config.save(jd / "config.json")
-    return _redirect(job_name, True, "Manual scan complete; readings written to CSV.")
+    cleared = stages.invalidate_from(jd, config, "import-measurements")
+    return _redirect(job_name, True, "Manual scan complete; readings written to CSV." + cleared_note(cleared))

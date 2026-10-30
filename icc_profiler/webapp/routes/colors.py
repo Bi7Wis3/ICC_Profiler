@@ -1,20 +1,20 @@
 from __future__ import annotations
 
-from urllib.parse import quote
-
 from fastapi import APIRouter, Form
-from fastapi.responses import RedirectResponse
 
-from icc_profiler import target_colors
+from icc_profiler import stages, target_colors
 from icc_profiler.errors import PipelineError
-from icc_profiler.webapp.common import job_dir, load_config
+from icc_profiler.webapp.common import job_dir, load_config, redirect_to_job, require_idle
 
 router = APIRouter()
 
+_REGENERATE_NOTE = (
+    " The chart no longer matches your custom colors: re-run 'generate-chart' and reprint."
+)
 
-def _redirect(job_name: str, ok: bool, message: str) -> RedirectResponse:
-    status = "ok" if ok else "error"
-    return RedirectResponse(f"/jobs/{job_name}?{status}={quote(message)}", status_code=303)
+
+def _redirect(job_name: str, ok: bool, message: str):
+    return redirect_to_job(job_name, ok, message)
 
 
 def _parse_floats(text: str) -> list[float]:
@@ -48,6 +48,7 @@ def add_color(
     jd = job_dir(job_name)
     config = load_config(job_name)
     try:
+        require_idle(job_name)
         if input_mode == "hex":
             if config.chart.colorspace != "RGB":
                 raise PipelineError(
@@ -69,14 +70,18 @@ def add_color(
         target_colors.add(jd, name.strip(), values, lab)
     except (PipelineError, ValueError) as exc:
         return _redirect(job_name, False, str(exc))
-    return _redirect(job_name, True, f"Added target color '{name}'.")
+    cleared = stages.invalidate_from(jd, config, "generate-chart")
+    return _redirect(job_name, True, f"Added target color '{name.strip()}'." + (_REGENERATE_NOTE if cleared else ""))
 
 
 @router.post("/jobs/{job_name}/colors/remove")
 def remove_color(job_name: str, name: str = Form(...)):
     jd = job_dir(job_name)
+    config = load_config(job_name)
     try:
+        require_idle(job_name)
         target_colors.remove(jd, name)
     except PipelineError as exc:
         return _redirect(job_name, False, str(exc))
-    return _redirect(job_name, True, f"Removed target color '{name}'.")
+    cleared = stages.invalidate_from(jd, config, "generate-chart")
+    return _redirect(job_name, True, f"Removed target color '{name}'." + (_REGENERATE_NOTE if cleared else ""))

@@ -17,11 +17,13 @@ need real printer/scanner/colorimeter hardware to observe (noted inline).
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import shutil
 from pathlib import Path
 
-from icc_profiler import argyll_tools, cht_geometry, csv_import, state, target_colors
-from icc_profiler.config import JobConfig
+from icc_profiler import argyll_tools, cgats, cht_geometry, csv_import, joblock, state, target_colors
+from icc_profiler.config import LAB_REFERENCES, JobConfig
 from icc_profiler.errors import PipelineError
 
 # Confirmed against real `targen -?` (3.1.0): these are targen's "-d
@@ -78,6 +80,11 @@ def scanner_profile_basename(job_dir: Path, config: JobConfig) -> Path:
     return scanner_profile_dir(job_dir) / f"{config.job_name}_scanner"
 
 
+def extra_patches_path(job_dir: Path, config: JobConfig) -> Path:
+    """Readings added on top of the chart, e.g. from a spot color proof sheet."""
+    return ti3_dir(job_dir) / f"{config.job_name}_extra.ti3"
+
+
 def icc_path(job_dir: Path, config: JobConfig) -> Path:
     return profile_dir(job_dir) / f"{config.job_name}.icc"
 
@@ -103,10 +110,104 @@ def _require_set(value: str, what: str) -> None:
         )
 
 
-def _require_done(job_dir: Path, stage: str) -> None:
-    st = state.load_state(job_dir)
-    if not state.is_done(st, stage):
+def order_for(config: JobConfig) -> list[str]:
+    return state.stage_order(config.measurement.method)
+
+
+def load_state(job_dir: Path, config: JobConfig) -> dict:
+    """state.json with untrustworthy (stale) "done" markers dropped."""
+    return state.load_state(job_dir, order_for(config))
+
+
+def _require_done(job_dir: Path, config: JobConfig, stage: str) -> None:
+    if not state.is_done(load_state(job_dir, config), stage):
         raise PipelineError(f"Stage '{stage}' must complete before this stage can run")
+
+
+def _finish(job_dir: Path, config: JobConfig, stage: str) -> None:
+    """Mark a stage done and clear every stage after it -- their outputs were
+    built from this stage's previous output and are now out of date."""
+    state.mark_done(job_dir, stage, order_for(config))
+
+
+def invalidate_from(job_dir: Path, config: JobConfig, stage: str) -> list[str]:
+    """Mark `stage` and everything after it pending because an input changed."""
+    return state.invalidate_from(job_dir, stage, order_for(config))
+
+
+# -- tying measurements to the chart they were taken from ---------------------
+#
+# Every generate-chart run re-randomizes which patch lands on which printed
+# label (A1, A2, ...), so a CSV or a scan of an *older* print still matches
+# every label and would import "successfully" into garbage. Each
+# measurement input is therefore recorded with a fingerprint of the .ti2 it
+# was measured against, and the stages that consume it refuse a mismatch.
+
+BINDING_FILENAME = "chart_binding.json"
+
+
+def chart_id(job_dir: Path, config: JobConfig) -> str | None:
+    """Fingerprint of the current chart (.ti2), or None if there isn't one."""
+    path = ti2_path(job_dir, config)
+    if not path.is_file():
+        return None
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+
+
+def _binding_path(job_dir: Path) -> Path:
+    return measurements_in_dir(job_dir) / BINDING_FILENAME
+
+
+def _load_bindings(job_dir: Path) -> dict:
+    path = _binding_path(job_dir)
+    if not path.is_file():
+        return {}
+    try:
+        return json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return {}
+
+
+def bind_input(job_dir: Path, config: JobConfig, kind: str) -> None:
+    """Record that the measurement input `kind` ("test_chart_scan" or
+    "colorimeter_csv") was supplied for the chart as it is right now."""
+    cid = chart_id(job_dir, config)
+    if cid is None:
+        raise PipelineError("Generate the chart first -- measurements must belong to a chart.")
+    bindings = _load_bindings(job_dir)
+    bindings[kind] = cid
+    path = _binding_path(job_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(bindings, indent=2))
+
+
+def input_matches_chart(job_dir: Path, config: JobConfig, kind: str, input_path: Path) -> bool:
+    """True if the measurement input was recorded against the current chart.
+
+    Inputs set without a recorded binding (e.g. a path typed into the
+    config by hand for the CLI) fall back to file times: the input must be
+    newer than the chart.
+    """
+    cid = chart_id(job_dir, config)
+    if cid is None:
+        return False
+    bound = _load_bindings(job_dir).get(kind)
+    if bound is not None:
+        return bound == cid
+    try:
+        return input_path.stat().st_mtime >= ti2_path(job_dir, config).stat().st_mtime
+    except OSError:
+        return False
+
+
+def _require_matching_chart(job_dir: Path, config: JobConfig, kind: str, input_path: Path, what: str) -> None:
+    if not input_matches_chart(job_dir, config, kind, input_path):
+        raise PipelineError(
+            f"The {what} was made for an earlier version of the chart. The chart was "
+            f"regenerated since then, which reshuffles which color sits under each printed "
+            f"label, so these measurements no longer line up. Print the current chart, "
+            f"measure it again, and upload the new {what}."
+        )
 
 
 # -- init ---------------------------------------------------------------------
@@ -140,6 +241,7 @@ def generate_chart(job_dir: Path, config: JobConfig) -> None:
         f"-f{config.chart.patch_count}",
         f"-g{config.chart.grey_steps}",
         "-G",
+        *targen_ink_args(config),
         *config.chart.extra_targen_args,
         str(basename),
     ]
@@ -151,7 +253,28 @@ def generate_chart(job_dir: Path, config: JobConfig) -> None:
     if colors:
         target_colors.merge_into_ti1(ti1, colors, config.chart.colorspace)
 
-    def _printtarg_argv(extra: list[str]) -> list[str]:
+    print_chart(config, basename, log)
+    _finish(job_dir, config, "generate-chart")
+
+
+def targen_ink_args(config: JobConfig) -> list[str]:
+    if config.chart.colorspace != "CMYK" or not config.chart.ink_limit:
+        return []
+    # Confirmed against real targen 3.1.0: "-l300" exactly makes the
+    # point-placement step spin for many minutes (60 patches, -d4, with
+    # or without -G), while -l299.9, -l301 and every other value tried
+    # (100-400) finish in about 1.5 s. A 0.1% nudge is far below what a
+    # printer can reproduce, so sidestep the hang.
+    limit = config.chart.ink_limit
+    return [f"-l{299.9 if limit == 300 else limit:g}"]
+
+
+def print_chart(config: JobConfig, basename: Path, log: Path, extra: list[str] = ()) -> None:
+    """printtarg <basename>.ti1 -> .ti2, .cht and the printable TIFF page(s),
+    scaled up to config.chart.min_patch_size_mm if set. Shared by the main
+    chart and the check chart (check_chart.py)."""
+
+    def _printtarg_argv(scale_args: list[str]) -> list[str]:
         return [
             _bin("printtarg", config),
             "-v",
@@ -161,13 +284,33 @@ def generate_chart(job_dir: Path, config: JobConfig) -> None:
             f"-p{config.chart.page_size}",
             *config.chart.extra_printtarg_args,
             *extra,
+            *scale_args,
             str(basename),
         ]
 
-    argyll_tools.run(_printtarg_argv([]), log_file=log, cwd=chart_dir(job_dir))
-    _require_file(ti2_path(job_dir, config), "printtarg output (.ti2)")
-    cht = cht_path(job_dir, config)
-    _require_file(cht, "printtarg chart-recognition template (.cht)")
+    def _clear_pages() -> None:
+        # printtarg names one page <base>.tif and several <base>_01.tif,
+        # <base>_02.tif, ... A run with fewer pages than the last one doesn't
+        # remove the extra old pages, which would then be printed with the
+        # new chart. They are printtarg's output, regenerated on every run.
+        # A multi-page chart also has no <base>.cht, only <base>_01.cht, ...,
+        # so an old single-page one must go too.
+        singles = [basename.with_suffix(".tif"), basename.with_suffix(".cht")]
+        for old in [*singles, *basename.parent.glob(f"{basename.name}_[0-9][0-9].*")]:
+            if old.suffix in (".tif", ".cht"):
+                old.unlink(missing_ok=True)
+
+    def _first_cht() -> Path:
+        single = basename.with_suffix(".cht")
+        cht = single if single.is_file() else basename.with_name(f"{basename.name}_01.cht")
+        _require_file(cht, "printtarg chart-recognition template (.cht)")
+        return cht
+
+    ti2 = basename.with_suffix(".ti2")
+    _clear_pages()
+    argyll_tools.run(_printtarg_argv([]), log_file=log, cwd=basename.parent)
+    _require_file(ti2, "printtarg output (.ti2)")
+    cht = _first_cht()
 
     if config.chart.min_patch_size_mm:
         # Confirmed empirically: printtarg's -a scales patch size uniformly
@@ -178,13 +321,10 @@ def generate_chart(job_dir: Path, config: JobConfig) -> None:
         smallest = min(width_mm, height_mm)
         if smallest < config.chart.min_patch_size_mm:
             scale = config.chart.min_patch_size_mm / smallest
-            argyll_tools.run(
-                _printtarg_argv([f"-a{scale:.6f}"]), log_file=log, cwd=chart_dir(job_dir)
-            )
-            _require_file(ti2_path(job_dir, config), "printtarg output (.ti2)")
-            _require_file(cht, "printtarg chart-recognition template (.cht)")
-
-    state.mark_done(job_dir, "generate-chart")
+            _clear_pages()
+            argyll_tools.run(_printtarg_argv([f"-a{scale:.6f}"]), log_file=log, cwd=basename.parent)
+            _require_file(ti2, "printtarg output (.ti2)")
+            _first_cht()
 
 
 # -- stage 2a: build-scanner-profile (scanner method only) --------------------
@@ -203,18 +343,17 @@ def build_scanner_profile(job_dir: Path, config: JobConfig) -> None:
        input device profile, as opposed to the default Lab cLUT used for the
        final printer profile in build_profile).
     """
-    _require_done(job_dir, "generate-chart")
+    _require_done(job_dir, config, "generate-chart")
     m = config.measurement.scanner
     _require_set(m.it8_reference_scan, "IT8 reference target scan")
     _require_set(m.it8_cht_file, "IT8 chart-recognition template (.cht)")
     _require_set(m.it8_cgats_reference_file, "IT8 vendor CGATS reference file")
-    # .resolve() -- these come from the job config as paths relative to
-    # wherever the user ran the command from, but the Argyll subprocess
-    # below runs with cwd=out_dir, so a relative path here would resolve
-    # against the wrong directory.
-    it8_scan = Path(m.it8_reference_scan).resolve()
-    it8_cht = Path(m.it8_cht_file).resolve()
-    it8_ref = Path(m.it8_cgats_reference_file).resolve()
+    # Resolved to absolute paths (see config.resolve_path) -- the Argyll
+    # subprocess below runs with cwd=out_dir, so a relative path would
+    # resolve against the wrong directory.
+    it8_scan = config.input_path(m.it8_reference_scan, job_dir)
+    it8_cht = config.input_path(m.it8_cht_file, job_dir)
+    it8_ref = config.input_path(m.it8_cgats_reference_file, job_dir)
     _require_file(it8_scan, "IT8 reference target scan")
     _require_file(it8_cht, "IT8 chart-recognition template (.cht)")
     _require_file(it8_ref, "IT8 vendor CGATS reference file")
@@ -240,7 +379,7 @@ def build_scanner_profile(job_dir: Path, config: JobConfig) -> None:
     profile_argv = [
         _bin("colprof", config),
         "-v",
-        "-qm",
+        f"-q{_QUALITY_LETTER.get(m.profile_quality, 'm')}",
         "-as",
         f"-D{config.job_name} scanner correction",
         str(basename),
@@ -248,7 +387,7 @@ def build_scanner_profile(job_dir: Path, config: JobConfig) -> None:
     argyll_tools.run(profile_argv, log_file=log, cwd=out_dir)
     _require_file(basename.with_suffix(".icc"), "scanner correction profile (.icc)")
 
-    state.mark_done(job_dir, "build-scanner-profile")
+    _finish(job_dir, config, "build-scanner-profile")
 
 
 # -- stage 2a cont'd: read-chart (scanner method only) -------------------------
@@ -264,11 +403,12 @@ def read_chart(job_dir: Path, config: JobConfig) -> None:
     this lets it write naturally next to the chart's .ti2 and then copies the
     result into 04_measurements/ instead of fighting that.
     """
-    _require_done(job_dir, "build-scanner-profile")
+    _require_done(job_dir, config, "build-scanner-profile")
     m = config.measurement.scanner
     _require_set(m.test_chart_scan, "test chart scan")
-    test_scan = Path(m.test_chart_scan).resolve()
+    test_scan = config.input_path(m.test_chart_scan, job_dir)
     _require_file(test_scan, "test chart scan")
+    _require_matching_chart(job_dir, config, "test_chart_scan", test_scan, "test chart scan")
     _require_file(cht_path(job_dir, config), ".cht from generate-chart")
     _require_file(ti2_path(job_dir, config), ".ti2 from generate-chart")
     scanner_icc = scanner_profile_basename(job_dir, config).with_suffix(".icc")
@@ -292,27 +432,44 @@ def read_chart(job_dir: Path, config: JobConfig) -> None:
     ti3_dir(job_dir).mkdir(parents=True, exist_ok=True)
     out_ti3 = ti3_path(job_dir, config)
     shutil.copyfile(produced_ti3, out_ti3)
-    state.mark_done(job_dir, "read-chart")
+    _finish(job_dir, config, "read-chart")
 
 
 # -- stage 2b: import-measurements (colorimeter_csv method only) --------------
 
 
 def import_measurements(job_dir: Path, config: JobConfig) -> None:
-    _require_done(job_dir, "generate-chart")
+    _require_done(job_dir, config, "generate-chart")
     m = config.measurement.colorimeter_csv
+    if m.lab_reference not in LAB_REFERENCES:
+        raise PipelineError(
+            "Confirm which illuminant/observer your colorimeter measured in before importing. "
+            "ICC profiles need L*a*b* relative to D50 / 2\u00b0, but many handheld colorimeters "
+            "(e.g. 3nh PS110, CHNSpec DS-173) default to D65 / 10\u00b0. Set the device to D50 / 2\u00b0 "
+            "(or D65 / 2\u00b0, which this tool converts), then pick that setting on the job page "
+            "(measurement.colorimeter_csv.lab_reference in the config)."
+        )
     _require_set(m.csv_file, "colorimeter CSV export")
-    csv_path = Path(m.csv_file)
+    csv_path = config.input_path(m.csv_file, job_dir)
     _require_file(csv_path, "colorimeter CSV export")
     _require_file(ti2_path(job_dir, config), ".ti2 from generate-chart")
+    _require_matching_chart(job_dir, config, "colorimeter_csv", csv_path, "colorimeter CSV")
 
-    table = csv_import.merge(ti2_path(job_dir, config), csv_path, m.column_map)
+    table = csv_import.merge(
+        ti2_path(job_dir, config),
+        csv_path,
+        m.column_map,
+        lab_reference=m.lab_reference,
+        match_by=m.match_by,
+        specular=m.specular,
+        ignore_prefixes=m.ignore_name_prefixes,
+    )
 
     ti3_dir(job_dir).mkdir(parents=True, exist_ok=True)
     out_ti3 = ti3_path(job_dir, config)
     table.write(out_ti3)
     _require_file(out_ti3, "imported measurement output (.ti3)")
-    state.mark_done(job_dir, "import-measurements")
+    _finish(job_dir, config, "import-measurements")
 
 
 # -- stage 3: build-profile (both methods) -------------------------------------
@@ -320,7 +477,7 @@ def import_measurements(job_dir: Path, config: JobConfig) -> None:
 
 def build_profile(job_dir: Path, config: JobConfig) -> None:
     prior_stage = "read-chart" if config.measurement.method == "scanner" else "import-measurements"
-    _require_done(job_dir, prior_stage)
+    _require_done(job_dir, config, prior_stage)
     src_ti3 = ti3_path(job_dir, config)
     _require_file(src_ti3, ".ti3 measurement file")
 
@@ -342,23 +499,53 @@ def build_profile(job_dir: Path, config: JobConfig) -> None:
         argv.append(f"-D{config.output.profile_description}")
     if config.output.copyright:
         argv.append(f"-C{config.output.copyright}")
+    if config.chart.colorspace == "CMYK":
+        if config.chart.ink_limit:
+            argv.append(f"-l{config.chart.ink_limit:g}")
+        if config.output.black_ink_limit:
+            argv.append(f"-L{config.output.black_ink_limit:g}")
     argv.extend(config.output.extra_colprof_args)
-    argv.append(str(src_ti3.with_suffix("")))
+    profile_ti3 = _with_extra_patches(job_dir, config, src_ti3)
+    argv.append(str(profile_ti3.with_suffix("")))
 
-    argyll_tools.run(argv, log_file=log, cwd=ti3_dir(job_dir))
+    # colprof at high/ultra quality can legitimately take many minutes (it
+    # runs in the background in the web UI), so allow up to an hour.
+    argyll_tools.run(argv, log_file=log, cwd=ti3_dir(job_dir), timeout=3600)
 
-    produced_icc = src_ti3.with_suffix(".icc")
+    produced_icc = profile_ti3.with_suffix(".icc")
     _require_file(produced_icc, "colprof output (.icc)")
     final_icc = icc_path(job_dir, config)
     shutil.copyfile(produced_icc, final_icc)
-    state.mark_done(job_dir, "build-profile")
+    _finish(job_dir, config, "build-profile")
+
+
+def _with_extra_patches(job_dir: Path, config: JobConfig, src_ti3: Path) -> Path:
+    """The .ti3 colprof should read: the chart readings alone, or with the
+    extra patches appended (written to <job>_plus.ti3, so the chart's own
+    .ti3 stays exactly what was imported)."""
+    extra_path = extra_patches_path(job_dir, config)
+    plus = src_ti3.with_name(f"{config.job_name}_plus.ti3")
+    if not extra_path.is_file():
+        plus.unlink(missing_ok=True)
+        return src_ti3
+    main = cgats.read(src_ti3)
+    extra = cgats.read(extra_path)
+    missing = [f for f in main.fields if f not in extra.fields]
+    if missing:
+        raise PipelineError(
+            f"The extra patches in {extra_path.name} don't have the chart's fields {missing}. "
+            "Remove them on the Spot colors page and add them again."
+        )
+    main.rows = [*main.rows, *({f: r[f] for f in main.fields} for r in extra.rows)]
+    main.write(plus)
+    return plus
 
 
 # -- stage 4: verify (both methods, optional) ----------------------------------
 
 
 def verify(job_dir: Path, config: JobConfig) -> str:
-    _require_done(job_dir, "build-profile")
+    _require_done(job_dir, config, "build-profile")
     src_ti3 = ti3_path(job_dir, config)
     icc = icc_path(job_dir, config)
     _require_file(src_ti3, ".ti3 measurement file")
@@ -372,7 +559,7 @@ def verify(job_dir: Path, config: JobConfig) -> str:
 
     report_path = profile_dir(job_dir) / f"{config.job_name}_verify.txt"
     report_path.write_text((proc.stdout or "") + (proc.stderr or ""))
-    state.mark_done(job_dir, "verify")
+    _finish(job_dir, config, "verify")
     return str(report_path)
 
 
@@ -390,10 +577,18 @@ STAGE_FUNCS = {
 # What has to be true before a stage can run, beyond "the previous stage is
 # done" -- i.e. the human step's output must be in place. Used by run_all to
 # stop cleanly and tell the user what to do next, instead of failing.
+# A measurement input from an older chart counts as "not ready": the user
+# has to print and measure the current chart.
 _HUMAN_INPUT_READY = {
-    "build-scanner-profile": lambda c: bool(c.measurement.scanner.it8_reference_scan),
-    "read-chart": lambda c: bool(c.measurement.scanner.test_chart_scan),
-    "import-measurements": lambda c: bool(c.measurement.colorimeter_csv.csv_file),
+    "build-scanner-profile": lambda jd, c: bool(c.measurement.scanner.it8_reference_scan),
+    "read-chart": lambda jd, c: bool(c.measurement.scanner.test_chart_scan)
+    and input_matches_chart(
+        jd, c, "test_chart_scan", c.input_path(c.measurement.scanner.test_chart_scan, jd)
+    ),
+    "import-measurements": lambda jd, c: bool(c.measurement.colorimeter_csv.csv_file)
+    and input_matches_chart(
+        jd, c, "colorimeter_csv", c.input_path(c.measurement.colorimeter_csv.csv_file, jd)
+    ),
 }
 
 _HUMAN_INSTRUCTIONS = {
@@ -404,36 +599,59 @@ _HUMAN_INSTRUCTIONS = {
     ),
     "read-chart": (
         "Scan the printed test chart (same scanner settings/session as the IT8 scan) "
-        "and set measurement.scanner.test_chart_scan in the job config."
+        "and set measurement.scanner.test_chart_scan in the job config. A scan made "
+        "before the chart was last regenerated doesn't count."
     ),
     "import-measurements": (
         "Print the chart in 01_chart/ at 100% scale. Measure each patch with the "
         "colorimeter, naming each reading to match the strip/row label printed next to "
         "it on the chart (e.g. 'A14') -- NOT the internal patch name -- export as CSV, "
-        "and set measurement.colorimeter_csv.csv_file in the job config."
+        "and set measurement.colorimeter_csv.csv_file in the job config. Measure in "
+        "D50 / 2\u00b0 and confirm that on the job page. A CSV made before the chart was "
+        "last regenerated doesn't count."
     ),
 }
 
 
-def run_all(job_dir: Path, config: JobConfig, force: bool = False) -> dict:
-    stages = state.stage_order(config.measurement.method)
-    if force:
-        for stage in stages:
-            state.mark_pending(job_dir, stage)
+def run_stage(job_dir: Path, config: JobConfig, stage: str):
+    """Run one stage under the job's lock (so two runs never touch the same
+    files at once). Returns whatever the stage function returns."""
+    func = STAGE_FUNCS.get(stage)
+    if func is None or stage not in order_for(config):
+        raise PipelineError(f"Unknown stage for a {config.measurement.method} job: {stage}")
+    with joblock.job_lock(job_dir):
+        return func(job_dir, config)
 
-    ran: list[str] = []
-    for stage in stages:
-        st = state.load_state(job_dir)
-        if state.is_done(st, stage):
-            continue
-        ready_check = _HUMAN_INPUT_READY.get(stage)
-        if ready_check is not None and not ready_check(config):
-            return {
-                "ran": ran,
-                "stopped_at": stage,
-                "message": _HUMAN_INSTRUCTIONS[stage],
-            }
-        STAGE_FUNCS[stage](job_dir, config)
-        ran.append(stage)
+
+def run_all(job_dir: Path, config: JobConfig, force: bool = False, regenerate_chart: bool = False) -> dict:
+    """Run every remaining stage, stopping cleanly at a human step.
+
+    force re-runs every stage *after* the chart: re-reading/importing the
+    measurements, rebuilding and re-verifying the profile. It deliberately
+    keeps the chart, because regenerating it reshuffles the patches and
+    invalidates anything already printed and measured. regenerate_chart
+    starts from scratch, chart included.
+    """
+    stages = order_for(config)
+    with joblock.job_lock(job_dir):
+        if regenerate_chart:
+            state.invalidate_from(job_dir, stages[0], stages)
+        elif force:
+            state.invalidate_from(job_dir, stages[1], stages)
+
+        ran: list[str] = []
+        for stage in stages:
+            st = load_state(job_dir, config)
+            if state.is_done(st, stage):
+                continue
+            ready_check = _HUMAN_INPUT_READY.get(stage)
+            if ready_check is not None and not ready_check(job_dir, config):
+                return {
+                    "ran": ran,
+                    "stopped_at": stage,
+                    "message": _HUMAN_INSTRUCTIONS[stage],
+                }
+            STAGE_FUNCS[stage](job_dir, config)
+            ran.append(stage)
 
     return {"ran": ran, "stopped_at": None, "message": "All stages complete."}

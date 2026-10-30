@@ -7,9 +7,12 @@
 
 <form method="post" action="/jobs/new" class="form">
   <label>Job name
-    <input type="text" name="job_name" placeholder="epson_p900_hahnemuhle_photo_rag" required>
+    <input type="text" name="job_name" placeholder="epson_p900_hahnemuhle_photo_rag" required
+           pattern="[A-Za-z0-9_\-][A-Za-z0-9_.\-]*" maxlength="100"
+           title="Letters, digits, _ - and . only; no spaces; don't start with a dot">
   </label>
-  <small>One per printer+paper(+ink) combination. Used as the folder name, so keep it filesystem-safe.</small>
+  <small>One per printer+paper(+ink) combination. Used as the folder name: letters, digits,
+     <code>_</code>, <code>-</code> and <code>.</code> only, no spaces.</small>
 
   <div class="form-row">
     <label>Printer <input type="text" name="printer_name" placeholder="Epson P900"></label>

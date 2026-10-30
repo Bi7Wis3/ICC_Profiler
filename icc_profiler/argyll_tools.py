@@ -110,6 +110,7 @@ def run(
     log_file: Path | None = None,
     cwd: Path | None = None,
     timeout: int | None = 300,
+    input: str | None = None,
 ) -> subprocess.CompletedProcess:
     """Run an Argyll CLI command, tee output to log_file, raise PipelineError on failure."""
     try:
@@ -117,6 +118,7 @@ def run(
             argv,
             capture_output=True,
             text=True,
+            input=input,
             cwd=str(cwd) if cwd else None,
             timeout=timeout,
         )

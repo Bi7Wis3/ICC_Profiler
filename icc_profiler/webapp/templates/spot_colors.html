@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Spot colors - {{ job_name }}{% endblock %}
+{% block content %}
+<p><a href="/jobs/{{ job_name }}">&larr; {{ job_name }}</a></p>
+<h1>Spot colors: {{ job_name }}</h1>
+
+{% if ok %}<p class="flash flash-ok">{{ ok }}</p>{% endif %}
+{% if error %}<p class="flash flash-error">{{ error }}</p>{% endif %}
+
+{% if not profile_ready %}
+<p class="warning">⚠ Build the profile first. Recipes are looked up in it.</p>
+{% elif spot.outdated %}
+<p class="warning">⚠ The profile was rebuilt since these recipes were made.
+  <form method="post" action="/jobs/{{ job_name }}/spot/recompute" style="display:inline">
+    <button type="submit">Update recipes</button></form></p>
+{% endif %}
+
+<section class="card">
+  <h2>Colors</h2>
+  {% if spot.colors %}
+  <table>
+    <thead><tr><th></th><th>Name</th><th>Recipe (%)</th><th>Expected ΔE</th><th>Proof</th><th>Measured ΔE</th><th></th></tr></thead>
+    <tbody>
+    {% for c in spot.colors %}
+      <tr>
+        <td><span class="swatch" style="background: {{ c.target_hex }}" title="Target L*{{ c.target_lab[0] }} a*{{ c.target_lab[1] }} b*{{ c.target_lab[2] }}"></span></td>
+        <td>{{ c.name }}{% if c.rounds %} <small>({{ c.rounds }}× corrected)</small>{% endif %}</td>
+        <td>{% for ch in c.channels %}{{ ch }} {{ c.device[loop.index0] }}{% if not loop.last %} · {% endif %}{% endfor %}</td>
+        <td>{{ "%.2f"|format(c.expected_de) }}{% if c.out_of_gamut %} <small class="pill pill-pending" title="The printer can't reach this color; the recipe is the closest it can print.">out of gamut</small>{% endif %}</td>
+        <td>{{ c.proof_label or "" }}</td>
+        <td>{% if c.measured_lab %}<span class="swatch" style="background: {{ c.measured_hex }}"></span>
+            {{ "%.2f"|format(c.measured_de) }}{% if c.measured_device != c.device %} <small>(older recipe)</small>{% endif %}{% endif %}</td>
+        <td><form method="post" action="/jobs/{{ job_name }}/spot/remove" style="display:inline">
+              <input type="hidden" name="name" value="{{ c.name }}"><button type="submit" title="Remove">✕</button></form></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p><a href="/jobs/{{ job_name }}/spot/recipes.csv"><button type="button">Download recipes (.csv)</button></a></p>
+  <p><small>Use these values as the CMYK of each spot color in your artwork, and print it the way you
+     printed the chart (no extra color management on top). Expected ΔE is the profile's own estimate.
+     Above {{ gamut_de }} the color is outside what the printer can reach, and the recipe is the closest
+     it can print.</small></p>
+  {% else %}
+  <p class="empty">No spot colors yet. Add some below.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Add colors</h2>
+  <h3>From your swatch book (recommended)</h3>
+  <p>Measure each swatch with the colorimeter using the same settings as the chart
+     ({{ config.measurement.colorimeter_csv.specular or "SCI/SCE" }},
+     {{ (config.measurement.colorimeter_csv.lab_reference or "not set").replace("_", "/") }}°), export, and upload it here.
+     If the readings are called Sample1, Sample2, …, list the color names in the order you measured them.</p>
+  <form method="post" action="/jobs/{{ job_name }}/spot/add-measured" enctype="multipart/form-data">
+    <label>Colorimeter export (.csv or .xlsx)
+      <input type="file" name="file" accept=".csv,.txt,.xlsx" required></label>
+    <label>Names, one per line, in measuring order
+      <textarea name="names" rows="5" placeholder="PANTONE 185 C&#10;PANTONE 286 C"></textarea></label>
+    <button type="submit" {{ "disabled" if not profile_ready }}>Add</button>
+  </form>
+
+  <h3>Type Lab values</h3>
+  <p><small>One color per line: <code>name; L; a; b</code>. Use D50 / 2° values, as Pantone publishes them.
+     A swatch measured from your own book is usually more accurate for your paper and light.</small></p>
+  <form method="post" action="/jobs/{{ job_name }}/spot/add-typed">
+    <textarea name="lines" rows="4" placeholder="PANTONE 185 C; 50.2; 74.3; 46.0"></textarea>
+    <button type="submit" {{ "disabled" if not profile_ready }}>Add</button>
+  </form>
+</section>
+
+{% if spot.colors and profile_ready %}
+<section class="card">
+  <h2>Proof sheet</h2>
+  <p>Print every recipe as a patch, measure it, and the tool corrects any recipe that didn't land where the
+     profile expected. One or two rounds are usually enough.</p>
+  <form method="post" action="/jobs/{{ job_name }}/spot/proof"
+        {% if spot.proof.ready %}onsubmit="return confirm('Make a new proof sheet? Measure the new one; the current sheet no longer counts.');"{% endif %}>
+    <button type="submit">{{ "Make a new proof sheet" if spot.proof.ready else "Make proof sheet" }}</button>
+  </form>
+  {% if spot.proof_stale %}
+  <p class="warning">⚠ Some recipes changed since this proof sheet was made. Make a new proof sheet, print it
+     and measure that one. Measuring the old sheet again can't tell whether the new recipes hit.</p>
+  {% endif %}
+  {% if spot.proof.ready %}
+    {% for f in spot.proof.pages %}
+      <img class="chart-thumb" src="/jobs/{{ job_name }}/spot/preview/{{ f }}" alt="{{ f }}">
+    {% endfor %}
+    <p><a href="/jobs/{{ job_name }}/spot/proof.pdf"><button type="button">Download proof PDF</button></a>
+      <small>Patches are labelled {{ spot.proof.labels[0] }} … {{ spot.proof.labels[-1] }} (plus one paper white).
+      {% if config.measurement.colorimeter_csv.match_by == "order" %}Measure every patch, white included, in order down each column,
+      starting a new list in the colorimeter software.{% endif %}</small></p>
+    <form method="post" action="/jobs/{{ job_name }}/spot/proof-upload" enctype="multipart/form-data">
+      <label>Proof sheet export (.csv or .xlsx)
+        <input type="file" name="file" accept=".csv,.txt,.xlsx" required></label>
+      <button type="submit">Upload and read</button>
+      <small>Current: {{ spot.proof.export or "none" }}</small>
+    </form>
+    {% if spot.can_add_to_profile %}
+    <form method="post" action="/jobs/{{ job_name }}/spot/add-to-profile" style="margin-top:8px"
+          onsubmit="return confirm('Add these readings to the profile and rebuild it? The current profile is kept as a backup copy.');">
+      <button type="submit">Add these readings to the profile</button>
+      <small>Rebuilds the profile with these patches included, so it is accurate around these colors for
+        everything you print through it (printer driver, RIP, Photoshop), not just these recipes.
+        Only do this with a proof printed exactly like the chart, with color management off.</small>
+    </form>
+    {% endif %}
+    {% if spot.can_correct %}
+    <form method="post" action="/jobs/{{ job_name }}/spot/correct" style="margin-top:8px">
+      <button type="submit">Correct the recipes that missed</button>
+    </form>
+    {% endif %}
+  {% endif %}
+</section>
+{% endif %}
+
+{% if spot.extra_patches %}
+<section class="card">
+  <h2>Extra patches in the profile</h2>
+  <p>The profile is built from the chart plus {{ spot.extra_patches }} spot color reading(s).</p>
+  <form method="post" action="/jobs/{{ job_name }}/spot/remove-extra"
+        onsubmit="return confirm('Rebuild the profile from the chart alone? The readings are kept in a renamed file.');">
+    <button type="submit">Take them out and rebuild</button>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

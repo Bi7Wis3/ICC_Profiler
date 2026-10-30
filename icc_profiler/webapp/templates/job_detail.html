@@ -25,6 +25,22 @@
 {% if ok %}<p class="flash flash-ok">{{ ok }}</p>{% endif %}
 {% if error %}<p class="flash flash-error">{{ error }}</p>{% endif %}
 
+<div id="task-status" data-job="{{ job_name }}" data-state="{{ task.state if task else 'idle' }}">
+  {% if task and task.state == "running" %}
+  <p class="flash flash-running">⏳ Running {{ task.label }}… <span id="task-elapsed"></span>
+     You can leave this page; the job keeps running.</p>
+  {% elif task and not task.seen %}
+  <p class="flash {{ 'flash-ok' if task.state == 'ok' else 'flash-error' }}">{{ task.message }}</p>
+  {% endif %}
+</div>
+
+{% if mismatched_inputs %}
+<p class="warning">⚠ The {{ mismatched_inputs|join(" and ") }} on file was made for an
+   <strong>earlier version of the chart</strong>. The chart was regenerated after that, which
+   reshuffles which color sits under each printed label, so it can't be used. Print the
+   current chart, measure it again and upload the new file.</p>
+{% endif %}
+
 <section class="card">
   <h2>Pipeline stages</h2>
   <table class="stage-table">
@@ -33,10 +49,12 @@
       {% for s in stage_rows %}
       <tr>
         <td>{{ s.name }}</td>
-        <td>{% if s.done %}<span class="pill pill-done">done</span>{% else %}<span class="pill pill-pending">pending</span>{% endif %}</td>
+        <td>{% if s.done %}<span class="pill pill-done">done</span>{% else %}<span class="pill pill-pending">pending</span>{% endif %}
+            {% if s.stale %}<small title="It was marked done, but an earlier stage ran after it, so its output is out of date.">(out of date)</small>{% endif %}</td>
         <td>
-          <form method="post" action="/jobs/{{ job_name }}/stage/{{ s.name }}" style="display:inline">
-            <button type="submit">{{ "Re-run" if s.done else "Run" }}</button>
+          <form method="post" action="/jobs/{{ job_name }}/stage/{{ s.name }}" style="display:inline"
+                {% if s.name == "generate-chart" and later_work %}onsubmit="return confirm('Regenerate the chart? This reshuffles every patch, so anything already printed or measured for this job has to be printed and measured again.');"{% endif %}>
+            <button type="submit" class="stage-button">{{ "Re-run" if s.done else "Run" }}</button>
           </form>
           <a href="/jobs/{{ job_name }}/logs/{{ s.name }}" target="_blank">log</a>
         </td>
@@ -44,12 +62,16 @@
       {% endfor %}
     </tbody>
   </table>
-  <form method="post" action="/jobs/{{ job_name }}/run" class="form-inline">
-    <button type="submit">Run all remaining stages</button>
-    <label><input type="checkbox" name="force" value="true"> force re-run everything</label>
+  <form method="post" action="/jobs/{{ job_name }}/run" class="form-inline"
+        onsubmit="if (this.regenerate_chart.checked) { return confirm('Regenerate the chart too? Anything already printed or measured for this job has to be redone.'); } return true;">
+    <button type="submit" class="stage-button">Run all remaining stages</button>
+    <label class="check"><input type="checkbox" name="force" value="true"> re-run every stage after the chart</label>
+    <label class="check"><input type="checkbox" name="regenerate_chart" value="true"> also regenerate the chart</label>
   </form>
   <p><a href="/jobs/{{ job_name }}/results">View results &rarr;</a>
-     {% if icc_exists %} &middot; <a href="/jobs/{{ job_name }}/profile.icc">Download .icc profile</a>{% endif %}</p>
+     {% if icc_exists %} &middot; <a href="/jobs/{{ job_name }}/profile.icc">Download .icc profile</a>{% endif %}
+     {% if icc_exists and config.measurement.method == "colorimeter_csv" %} &middot; <a href="/jobs/{{ job_name }}/spot">Spot colors (Pantone)</a>{% endif %}
+     {% if icc_outdated %}<small>(the last built profile is out of date — re-run "build-profile")</small>{% endif %}</p>
 </section>
 
 <section class="card">
@@ -158,12 +180,62 @@
   </div>
   {% else %}
   <h2>Colorimeter CSV import</h2>
-  <p>Print the chart above, measure every patch with the colorimeter, naming each
-     reading to match the strip/row label printed <em>next to that patch on the chart</em>
-     (e.g. "A14") — not any internal name — then export all readings as CSV and upload it here.</p>
+
+  {% set lab_ref = config.measurement.colorimeter_csv.lab_reference %}
+  <div class="{{ 'notice' if lab_ref else 'warning' }}">
+    <p><strong>Illuminant / observer: ICC profiles need L*a*b* measured as D50 / 2°.</strong>
+       Many handheld colorimeters (3nh PS110, CHNSpec DS-173, ...) default to <strong>D65 / 10°</strong>.
+       Readings in the wrong setting shift every color in the profile, and "verify" can't notice,
+       because it checks the profile against those same readings.
+       Set the device to D50 / 2° before measuring (D65 / 2° also works; this tool converts it).
+       A 10° observer can't be converted: re-measure.</p>
+    <form method="post" action="/jobs/{{ job_name }}/measurements/lab-reference" class="form-inline">
+      <label>My colorimeter measured in
+        <select name="lab_reference">
+          <option value="" {{ "selected" if not lab_ref }}>— choose —</option>
+          {% for key, label in lab_references.items() %}
+          <option value="{{ key }}" {{ "selected" if lab_ref == key }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" name="confirmed" value="true" required {{ "checked" if lab_ref }}>
+        I checked this setting on the device</label>
+      <button type="submit">Save</button>
+    </form>
+    {% if not lab_ref %}<p><small>Required before "import-measurements" can run.</small></p>{% endif %}
+  </div>
+
+  <p>Print the chart above and measure every patch with the colorimeter. Either name each
+     reading after the label printed <em>next to that patch on the chart</em> (e.g. "A14"), or,
+     if your software can't rename readings, measure in the fixed order below. Then export all
+     readings (CSV or Excel) and upload the file here.</p>
+  {% set csv_cfg = config.measurement.colorimeter_csv %}
+  <form method="post" action="/jobs/{{ job_name }}/measurements/import-options" class="form-inline">
+    <label>Readings are matched to patches
+      <select name="match_by">
+        <option value="name" {{ "selected" if csv_cfg.match_by == "name" }}>by name (each reading named A1, A14, …)</option>
+        <option value="order" {{ "selected" if csv_cfg.match_by == "order" }}>by measuring order (Sample1, Sample2, … e.g. 3nh SQCX)</option>
+      </select>
+    </label>
+    <label>Use readings taken in
+      <select name="specular">
+        <option value="SCE" {{ "selected" if csv_cfg.specular == "SCE" }}>SCE (recommended)</option>
+        <option value="SCI" {{ "selected" if csv_cfg.specular == "SCI" }}>SCI</option>
+        <option value="" {{ "selected" if not csv_cfg.specular }}>either (file has no SCI/SCE column)</option>
+      </select>
+    </label>
+    <button type="submit">Save</button>
+  </form>
+  {% if csv_cfg.match_by == "order" %}
+  <p><small><strong>Measuring order:</strong> go down each printed column, A1, A2, … to the end of
+     column A, then B1, B2, … and so on. Measure every patch exactly once; delete any accidental
+     extra reading in the colorimeter software before exporting. The guided patch scan page lists
+     the same order. Rows named "Standard…" are skipped.</small></p>
+  {% endif %}
+
   <form method="post" action="/jobs/{{ job_name }}/measurements/upload-csv" enctype="multipart/form-data">
-    <label>Colorimeter CSV export
-      <input type="file" name="file" accept=".csv" required>
+    <label>Colorimeter export (.csv or .xlsx)
+      <input type="file" name="file" accept=".csv,.txt,.xlsx" required>
     </label>
     <button type="submit">Upload</button>
     <small>Current: {{ config.measurement.colorimeter_csv.csv_file or "none" }}</small>
@@ -175,8 +247,61 @@
   {% if manual_scan_progress %}
   <small>In progress: {{ manual_scan_progress.done }}/{{ manual_scan_progress.total }} patches measured.</small>
   {% endif %}
+  {% if manual_scan_stale %}
+  <small>Readings from an older version of the chart were set aside; they don't match the current chart.</small>
+  {% endif %}
   {% endif %}
 </section>
+
+{% if check is not none %}
+<section class="card">
+  <h2>Check chart (real accuracy test)</h2>
+  <p>"verify" only compares the profile with the patches it was built from. For a real test,
+     print a small second chart with <em>different</em> patches, measure it exactly like the main
+     chart (same paper, same {{ config.measurement.colorimeter_csv.specular or "SCI/SCE" }} and
+     illuminant settings), and upload the export here.</p>
+  {% if not icc_exists %}<p><small>Build the profile first; the check needs a finished profile.</small></p>{% endif %}
+  <form method="post" action="/jobs/{{ job_name }}/check/generate" class="form-inline"
+        {% if check.has_chart %}onsubmit="return confirm('Make a new check chart? The current one and its readings no longer count.');"{% endif %}>
+    <label>Patches
+      <input type="number" name="patch_count" value="{{ check.patch_count or check_patch_default }}"
+             min="{{ check_patch_range[0] }}" max="{{ check_patch_range[1] }}" style="width:6em">
+    </label>
+    <button type="submit">{{ "Make a new check chart" if check.has_chart else "Make check chart" }}</button>
+  </form>
+  {% if check.has_chart %}
+    {% for f in check.pages %}
+      <img class="chart-thumb" src="/jobs/{{ job_name }}/check/preview/{{ f }}" alt="{{ f }}">
+    {% endfor %}
+    <p><a href="/jobs/{{ job_name }}/check/download.pdf"><button type="button">Download check chart PDF</button></a>
+       <small>{{ check.patch_count }} patches, labelled {{ check.first_loc }} … {{ check.last_loc }}.
+       {% if config.measurement.colorimeter_csv.match_by == "order" %}Measure them in this order, down each column,
+       starting a new list in the colorimeter software.{% endif %}</small></p>
+    <form method="post" action="/jobs/{{ job_name }}/check/upload" enctype="multipart/form-data">
+      <label>Check chart export (.csv or .xlsx)
+        <input type="file" name="file" accept=".csv,.txt,.xlsx" required>
+      </label>
+      <button type="submit">Upload</button>
+      <small>Current: {{ check.export or "none" }}</small>
+    </form>
+    {% if check.export %}
+    <form method="post" action="/jobs/{{ job_name }}/check/run" style="margin-top:8px">
+      <button type="submit" {{ "disabled" if not icc_exists }}>Check the profile</button>
+      {% if not icc_exists %}<small>Build the profile first (the "build-profile" stage above), then check it here.</small>{% endif %}
+    </form>
+    {% endif %}
+    {% if check.result %}
+      <p><strong>Result on {{ check.result.patch_count }} new patches:</strong>
+         average ΔE {{ "%.2f"|format(check.result.average_de|float) }},
+         largest {{ "%.2f"|format(check.result.maximum_de|float) }}.
+         {% if check.result.outdated %}<small>(the profile was rebuilt since — click "Check the profile" again)</small>{% endif %}</p>
+      <p><small>Rough guide: average under 2 is very good, 2–3 is good, above 3 is worth a look
+         (often a measuring slip or a patch measured out of order).</small></p>
+      <details><summary>Per-patch report</summary><pre class="log">{{ check.result.raw }}</pre></details>
+    {% endif %}
+  {% endif %}
+</section>
+{% endif %}
 
 <section class="card">
   <h2>Custom target colors</h2>
@@ -229,7 +354,8 @@
   </div>
 
   <form method="post" action="/jobs/{{ job_name }}/colors/add" class="form">
-    <label>Name <input type="text" name="name" required></label>
+    <label>Name <input type="text" name="name" required pattern="[A-Za-z0-9_\-][A-Za-z0-9_.\-]*" maxlength="100"
+                       title="Letters, digits, _ - and . only; no spaces"></label>
 
     {% if config.chart.colorspace == "CMYK" %}
     <input type="hidden" name="input_mode" value="cmyk">
@@ -259,4 +385,5 @@
 {% block scripts %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.5.141/pdf.min.js"></script>
 <script src="/static/js/color_picker.js"></script>
+<script src="/static/js/task_status.js"></script>
 {% endblock %}

@@ -22,48 +22,85 @@ from pathlib import Path
 from icc_profiler.cgats import read as cgats_read
 from icc_profiler.color_convert import xyz_to_hex
 from icc_profiler.config import JobConfig
-from icc_profiler.csv_import import DEFAULT_COLUMN_MAP
+from icc_profiler.csv_import import DEFAULT_COLUMN_MAP, loc_sort_key, parse_lab
 from icc_profiler.errors import PipelineError
-from icc_profiler.stages import measurements_in_dir, ti2_path
+from icc_profiler.stages import bind_input, chart_id, measurements_in_dir, ti2_path
 
 MANUAL_SCAN_FILENAME = "manual_scan_progress.json"
 CSV_FILENAME = "colorimeter_export.csv"
+
+# Progress file format: {"chart_id": "<ti2 fingerprint>", "readings": {loc: {L,a,b}}}.
+# Readings are only valid for the chart they were taken from: regenerating
+# the chart reshuffles which color is printed under each label. Files from
+# before this format are a bare {loc: {L,a,b}} dict with no chart_id; those
+# are trusted only if they are newer than the chart.
 
 
 def progress_path(job_dir: Path) -> Path:
     return measurements_in_dir(job_dir) / MANUAL_SCAN_FILENAME
 
 
-def load_progress(job_dir: Path) -> dict[str, dict]:
+def _read_file(job_dir: Path) -> dict:
     path = progress_path(job_dir)
     if not path.exists():
         return {}
     return json.loads(path.read_text())
 
 
-def save_progress(job_dir: Path, progress: dict[str, dict]) -> None:
+def _file_chart_id(job_dir: Path, config: JobConfig, data: dict) -> str | None:
+    if "readings" in data:
+        return data.get("chart_id")
+    # Legacy flat format: assume it belongs to the current chart only if it
+    # was written after the chart was generated.
+    ti2 = ti2_path(job_dir, config)
+    try:
+        if progress_path(job_dir).stat().st_mtime >= ti2.stat().st_mtime:
+            return chart_id(job_dir, config)
+    except OSError:
+        pass
+    return None
+
+
+def is_stale(job_dir: Path, config: JobConfig) -> bool:
+    """True if saved readings exist but belong to a different chart."""
+    data = _read_file(job_dir)
+    readings = data.get("readings", data) if data else {}
+    return bool(readings) and _file_chart_id(job_dir, config, data) != chart_id(job_dir, config)
+
+
+def load_progress(job_dir: Path, config: JobConfig) -> dict[str, dict]:
+    """Readings recorded against the current chart (stale ones are ignored)."""
+    data = _read_file(job_dir)
+    if not data or is_stale(job_dir, config):
+        return {}
+    return dict(data.get("readings", data))
+
+
+def save_progress(job_dir: Path, config: JobConfig, readings: dict[str, dict]) -> None:
     path = progress_path(job_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(progress, indent=2))
+    if path.exists() and is_stale(job_dir, config):
+        # Keep the old readings rather than silently overwriting them.
+        path.replace(path.with_name(f"manual_scan_progress.stale-{int(path.stat().st_mtime)}.json"))
+    path.write_text(
+        json.dumps({"chart_id": chart_id(job_dir, config), "readings": readings}, indent=2)
+    )
 
 
-def record_reading(job_dir: Path, patch_loc: str, L: str, a: str, b: str) -> dict[str, dict]:
-    try:
-        L_f, a_f, b_f = float(L), float(a), float(b)
-    except ValueError as exc:
-        raise PipelineError(
-            f"L*/a*/b* must be numbers (got L={L!r}, a={a!r}, b={b!r})"
-        ) from exc
-    progress = load_progress(job_dir)
+def record_reading(job_dir: Path, config: JobConfig, patch_loc: str, L: str, a: str, b: str) -> dict[str, dict]:
+    if patch_loc not in {p["loc"] for p in chart_patches(job_dir, config)}:
+        raise PipelineError(f"{patch_loc!r} is not a patch label on this job's chart")
+    L_f, a_f, b_f = parse_lab(L, a, b, where=f"Patch {patch_loc}")
+    progress = load_progress(job_dir, config)
     progress[patch_loc] = {"L": L_f, "a": a_f, "b": b_f}
-    save_progress(job_dir, progress)
+    save_progress(job_dir, config, progress)
     return progress
 
 
-def clear_reading(job_dir: Path, patch_loc: str) -> dict[str, dict]:
-    progress = load_progress(job_dir)
+def clear_reading(job_dir: Path, config: JobConfig, patch_loc: str) -> dict[str, dict]:
+    progress = load_progress(job_dir, config)
     progress.pop(patch_loc, None)
-    save_progress(job_dir, progress)
+    save_progress(job_dir, config, progress)
     return progress
 
 
@@ -93,15 +130,16 @@ def chart_patches(job_dir: Path, config: JobConfig) -> list[dict]:
             except ValueError:
                 swatch_hex = None
         patches.append({"loc": row["SAMPLE_LOC"], "sample_id": row["SAMPLE_ID"], "swatch_hex": swatch_hex})
-    # Same natural-sort key as csv_import.py's missing-patch listing, so
-    # patch ordering reads the same way everywhere in this project.
-    patches.sort(key=lambda p: (len(p["loc"]), p["loc"]))
+    # Down each printed column: A1, A2, ... A27, B1, ... -- the same order
+    # csv_import uses for measuring-order imports, so the guided scan page
+    # doubles as the measuring list for those.
+    patches.sort(key=lambda p: loc_sort_key(p["loc"]))
     return patches
 
 
 def build_rows(job_dir: Path, config: JobConfig) -> list[dict]:
     """chart_patches() joined with the readings recorded so far."""
-    progress = load_progress(job_dir)
+    progress = load_progress(job_dir, config)
     rows = []
     for patch in chart_patches(job_dir, config):
         reading = progress.get(patch["loc"])
@@ -125,11 +163,8 @@ def write_csv(job_dir: Path, config: JobConfig, column_map: dict | None = None) 
         raise PipelineError(f"column_map is missing required keys {missing_keys}")
 
     patches = chart_patches(job_dir, config)
-    progress = load_progress(job_dir)
-    missing = sorted(
-        (p["loc"] for p in patches if p["loc"] not in progress),
-        key=lambda s: (len(s), s),
-    )
+    progress = load_progress(job_dir, config)
+    missing = [p["loc"] for p in patches if p["loc"] not in progress]
     if missing:
         raise PipelineError(
             f"{len(missing)} chart patch(es) still need a reading before finishing: "
@@ -152,4 +187,5 @@ def write_csv(job_dir: Path, config: JobConfig, column_map: dict | None = None) 
                     column_map["b"]: reading["b"],
                 }
             )
+    bind_input(job_dir, config, "colorimeter_csv")
     return dest

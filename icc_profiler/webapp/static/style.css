@@ -154,7 +154,7 @@ tbody tr:hover { background: rgba(102, 126, 234, 0.08); }
 .form-inline { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
 label { display: flex; flex-direction: column; gap: 4px; font-size: 0.92em; flex: 1; color: var(--text-light); }
 
-input, select {
+input, select, textarea {
   -webkit-appearance: none;
   -moz-appearance: none;
   appearance: none;
@@ -173,8 +173,24 @@ select {
   background-position: right 0.7rem center;
   background-size: 14px;
 }
-input:focus, select:focus { outline: none; border-color: var(--primary); }
-input::placeholder { color: var(--text-light); opacity: 0.7; }
+/* Checkboxes/radios keep the browser's native look: the appearance:none
+   text-field styling above turns them into an empty padded box. */
+input[type="checkbox"], input[type="radio"] {
+  -webkit-appearance: auto;
+  -moz-appearance: auto;
+  appearance: auto;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  margin: 0;
+  flex: none;
+  border: none;
+  background: none;
+  accent-color: var(--primary);
+}
+label.check { flex-direction: row; align-items: center; gap: 8px; flex: none; color: var(--text); }
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary); }
+input::placeholder, textarea::placeholder { color: var(--text-light); opacity: 0.7; }
 select option { background: var(--dropdown-bg); color: var(--text); }
 
 .color-picker { margin-bottom: 1.2rem; }
@@ -211,6 +227,9 @@ small { color: var(--text-light); }
 .flash-ok { background: rgba(76, 175, 80, 0.15); color: #81c784; border: 1px solid rgba(76, 175, 80, 0.3); }
 .flash-error { background: rgba(244, 67, 54, 0.15); color: #e57373; border: 1px solid rgba(244, 67, 54, 0.3); }
 .warning { background: rgba(255, 152, 0, 0.12); color: #ffb74d; padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(255, 152, 0, 0.3); }
+.flash-running { background: rgba(33, 150, 243, 0.15); color: #64b5f6; border: 1px solid rgba(33, 150, 243, 0.3); }
+.notice { background: rgba(33, 150, 243, 0.08); padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(33, 150, 243, 0.25); margin-bottom: 12px; }
+.warning p, .notice p { margin: 0 0 8px; }
 
 h3 { margin-top: 20px; margin-bottom: 4px; }
 .chart-thumb { max-width: 240px; border: 1px solid var(--border); border-radius: 8px; margin: 4px; }
@@ -232,3 +251,4 @@ h3 { margin-top: 20px; margin-bottom: 4px; }
 @media (max-width: 700px) {
   .topbar { flex-direction: column; align-items: flex-start; }
 }
+textarea { display: block; width: 100%; max-width: 640px; font-family: inherit; margin: 4px 0 8px; }

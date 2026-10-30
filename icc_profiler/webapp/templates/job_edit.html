@@ -6,10 +6,10 @@
 
 {% if error %}<p class="flash flash-error">{{ error }}</p>{% endif %}
 
-<p class="warning">⚠ Changing chart settings (patch count, grey steps, page size, colorspace...)
-   does not retroactively change a chart you already generated/printed. If you change these,
-   re-run "generate-chart" (and reprint) before measuring, or the chart and your measurements
-   won't match.</p>
+<p class="warning">⚠ Changing chart settings (patch count, grey steps, page size, colorspace,
+   ink limit...) doesn't change a chart you already printed. Saving them marks "generate-chart"
+   and every later stage as pending: regenerate the chart and reprint it before measuring.
+   Changing only profile settings marks "build-profile" onwards as pending.</p>
 
 <p><small>Job name and measurement method can't be changed here — job name is fixed at
    creation, and method requires a matching set of pipeline stages. Use
@@ -53,6 +53,12 @@
     </label>
     <small>Scales patches up (never down) to at least this size on each side — e.g. to clear a
        colorimeter's measurement aperture. Takes effect on the next "generate-chart" run.</small>
+    <label>Total ink limit, % (CMYK only)
+      <input type="number" step="1" min="1" max="400" name="ink_limit" value="{{ config.chart.ink_limit if config.chart.ink_limit is not none else '' }}" placeholder="e.g. 300 — leave blank for no limit">
+    </label>
+    <small>Maximum C+M+Y+K the chart may use and the profile will produce (targen <code>-l</code>,
+       colprof <code>-l</code>). Set it to what your paper can take without bleeding or pooling;
+       ignored for RGB/Gray. Changing it means regenerating and reprinting the chart.</small>
     <div class="form-row">
       <label>Extra targen args <input type="text" name="extra_targen_args" value="{{ config.chart.extra_targen_args|join(' ') }}" placeholder="space-separated, e.g. -l250"></label>
       <label>Extra printtarg args <input type="text" name="extra_printtarg_args" value="{{ config.chart.extra_printtarg_args|join(' ') }}" placeholder="space-separated"></label>
@@ -80,8 +86,27 @@
         </select>
       </label>
     </div>
+    <label>Black ink limit, % (CMYK only)
+      <input type="number" step="1" min="1" max="100" name="black_ink_limit" value="{{ config.output.black_ink_limit if config.output.black_ink_limit is not none else '' }}" placeholder="leave blank for no limit">
+    </label>
+    <small>colprof <code>-L</code>: caps black ink in the profile's output. Ignored for RGB/Gray.</small>
     <label>Extra colprof args <input type="text" name="extra_colprof_args" value="{{ config.output.extra_colprof_args|join(' ') }}" placeholder="space-separated"></label>
   </fieldset>
+
+  {% if config.measurement.method == "scanner" %}
+  <fieldset>
+    <legend>Scanner correction profile</legend>
+    <label>Quality (colprof -q for the scanner profile)
+      <select name="scanner_profile_quality">
+        {% for q in ["low", "medium", "high", "ultra"] %}
+        <option value="{{ q }}" {{ "selected" if config.measurement.scanner.profile_quality == q }}>{{ q }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <small>Separate from the printer profile's quality above. Medium is plenty for a
+       shaper+matrix scanner profile and keeps this step fast.</small>
+  </fieldset>
+  {% endif %}
 
   <fieldset>
     <legend>ArgyllCMS</legend>

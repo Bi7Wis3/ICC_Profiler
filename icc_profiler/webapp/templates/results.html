@@ -4,6 +4,13 @@
 <p><a href="/jobs/{{ job_name }}">&larr; {{ job_name }}</a></p>
 <h1>Results: {{ job_name }}</h1>
 
+{% if outdated.measurements or outdated.profile or outdated.report %}
+<p class="warning">⚠ Some of what's shown below is <strong>out of date</strong>: an earlier
+   stage was re-run or its inputs changed after
+   {% if outdated.measurements %}these measurements{% elif outdated.profile %}this profile{% else %}this report{% endif %}
+   were produced. Re-run the pending stages on the job page before trusting these numbers.</p>
+{% endif %}
+
 {% if icc_exists %}
 <p><a href="/jobs/{{ job_name }}/profile.icc"><button type="button">Download .icc profile</button></a></p>
 {% endif %}
@@ -60,7 +67,7 @@
     <tbody>
       {% for r in custom_rows %}
       <tr>
-        <td>{{ r.sample_id[7:] }}</td>
+        <td>{{ r.name }}</td>
         <td>L*{{ "%.2f"|format(r.L) }} a*{{ "%.2f"|format(r.a) }} b*{{ "%.2f"|format(r.b) }}</td>
         <td>{{ r.target_lab or "—" }}</td>
         <td><span class="swatch" style="background:{{ r.hex }}"></span></td>

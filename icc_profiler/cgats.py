@@ -14,8 +14,23 @@ common case for .ti2/.ti3, which are single-table) should still go through
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from pathlib import Path
+
+# A data-row token: a double-quoted string (which may contain spaces) or a
+# run of non-whitespace.
+_TOKEN_RE = re.compile(r'"[^"]*"|\S+')
+_NUMBER_RE = re.compile(r"^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$")
+
+
+def _format_value(value: object, quoted: bool) -> str:
+    text = str(value)
+    # Quote string-typed fields (as the source file did), and anything that
+    # would otherwise split the row or vanish: empty values, whitespace.
+    if quoted or text == "" or any(c.isspace() for c in text):
+        return '"' + text.replace('"', "'") + '"'
+    return text
 
 
 @dataclass
@@ -24,6 +39,9 @@ class CgatsTable:
     preamble: list[str]  # header keyword lines before BEGIN_DATA_FORMAT, verbatim
     fields: list[str]
     rows: list[dict[str, str]]
+    # Fields whose values were quoted in the source file (e.g. SAMPLE_LOC in
+    # a .ti2), so a rewrite keeps them quoted.
+    quoted_fields: set[str] = field(default_factory=set)
 
     def render(self) -> str:
         lines = [self.file_type, *self.preamble]
@@ -34,7 +52,9 @@ class CgatsTable:
         lines.append(f"NUMBER_OF_SETS {len(self.rows)}")
         lines.append("BEGIN_DATA")
         for row in self.rows:
-            lines.append(" ".join(str(row.get(f, "")) for f in self.fields))
+            lines.append(
+                " ".join(_format_value(row.get(f, ""), f in self.quoted_fields) for f in self.fields)
+            )
         lines.append("END_DATA")
         return "\n".join(lines)
 
@@ -79,18 +99,33 @@ def read_tables(path: Path) -> list[CgatsTable]:
             raise ValueError(f"{path}: no BEGIN_DATA section found for {file_type} table")
         i += 1  # skip BEGIN_DATA
         rows: list[dict[str, str]] = []
+        quoted_fields: set[str] = set()
         while i < len(lines) and lines[i].strip() != "END_DATA":
             line = lines[i].strip()
             if line:
                 # CGATS quotes string-typed fields (e.g. SAMPLE_LOC "A17");
                 # confirmed against real printtarg .ti2 output. Strip
                 # matching quotes so callers get the plain value.
-                tokens = [t[1:-1] if len(t) >= 2 and t[0] == t[-1] == '"' else t for t in line.split()]
+                tokens = []
+                for name, tok in zip(fields, _TOKEN_RE.findall(line)):
+                    if len(tok) >= 2 and tok[0] == tok[-1] == '"':
+                        tok = tok[1:-1]
+                        if not _NUMBER_RE.match(tok):
+                            quoted_fields.add(name)
+                    tokens.append(tok)
                 rows.append(dict(zip(fields, tokens)))
             i += 1
         i += 1  # skip END_DATA
 
-        tables.append(CgatsTable(file_type=file_type, preamble=preamble, fields=fields, rows=rows))
+        tables.append(
+            CgatsTable(
+                file_type=file_type,
+                preamble=preamble,
+                fields=fields,
+                rows=rows,
+                quoted_fields=quoted_fields,
+            )
+        )
 
     if not tables:
         raise ValueError(f"{path}: no CGATS tables found")

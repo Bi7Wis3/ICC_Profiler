@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import re
-
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 
-from icc_profiler import cgats, target_colors
-from icc_profiler.color_convert import lab_to_hex
+from icc_profiler import cgats, stages, state, target_colors
+from icc_profiler.check_chart import parse_profcheck_report
+from icc_profiler.color_convert import lab_d50_to_hex
 from icc_profiler.stages import icc_path, profile_dir, ti3_path
 from icc_profiler.webapp.common import job_dir, load_config, templates
 
@@ -16,35 +15,13 @@ router = APIRouter()
 @router.get("/jobs/{job_name}/profile.icc")
 def download_icc_profile(job_name: str):
     config = load_config(job_name)
-    path = icc_path(job_dir(job_name), config)
-    if not path.is_file():
+    jd = job_dir(job_name)
+    path = icc_path(jd, config)
+    if not path.is_file() or not state.is_done(stages.load_state(jd, config), "build-profile"):
         raise HTTPException(404, "No .icc profile built yet for this job -- run 'build-profile' first.")
     return FileResponse(
         path, media_type="application/vnd.iccprofile", filename=f"{job_name}.icc"
     )
-
-#   No of test patches = 21
-#   Profile check complete, errors: max. = 14.938801, avg. = 7.640107, RMS = 8.800242
-# -- confirmed against real ArgyllCMS 3.1.0 profcheck -v2 output.
-_SUMMARY_RE = re.compile(
-    r"errors:\s*max\.\s*=\s*([0-9.]+),\s*avg\.\s*=\s*([0-9.]+),\s*RMS\s*=\s*([0-9.]+)",
-    re.IGNORECASE,
-)
-# Per-patch line: [8.607638] 1: ... should be ...
-_PATCH_RE = re.compile(r"^\[([0-9.]+)\]\s*(\S+):", re.MULTILINE)
-
-
-def _parse_profcheck_report(text: str) -> dict:
-    m = _SUMMARY_RE.search(text)
-    patch_matches = _PATCH_RE.findall(text)
-    return {
-        "maximum_de": m.group(1) if m else None,
-        "average_de": m.group(2) if m else None,
-        "rms_de": m.group(3) if m else None,
-        "patch_count": len(patch_matches),
-        "raw": text,
-    }
-
 
 @router.get("/jobs/{job_name}/results")
 def results(request: Request, job_name: str):
@@ -66,7 +43,8 @@ def results(request: Request, job_name: str):
                     "L": L,
                     "a": a,
                     "b": b,
-                    "hex": lab_to_hex(L, a, b),
+                    # .ti3 Lab is D50-relative (ArgyllCMS/ICC convention).
+                    "hex": lab_d50_to_hex(L, a, b),
                     "is_custom": row["SAMPLE_ID"].startswith("CUSTOM_"),
                     # SVG viewBox is 400x400; a*/b* roughly span -128..127.
                     "svg_x": round(200 + a * 1.5, 1),
@@ -75,13 +53,22 @@ def results(request: Request, job_name: str):
             )
 
     custom_rows = [r for r in rows if r["is_custom"]]
-    custom_colors_by_name = {c["name"]: c for c in target_colors.load(jd)}
+    custom_colors_by_id = {target_colors.sample_id_for(c["name"]): c for c in target_colors.load(jd)}
     for r in custom_rows:
-        name = r["sample_id"][len("CUSTOM_") :]
-        r["target_lab"] = custom_colors_by_name.get(name, {}).get("target_lab")
+        color = custom_colors_by_id.get(r["sample_id"], {})
+        r["name"] = color.get("name", r["sample_id"][len("CUSTOM_") :])
+        r["target_lab"] = color.get("target_lab")
 
+    st = stages.load_state(jd, config)
+    measure_stage = "read-chart" if config.measurement.method == "scanner" else "import-measurements"
     report_path = profile_dir(jd) / f"{config.job_name}_verify.txt"
-    report = _parse_profcheck_report(report_path.read_text()) if report_path.exists() else None
+    report = parse_profcheck_report(report_path.read_text()) if report_path.exists() else None
+    # Files left over from an earlier run whose inputs have since changed.
+    outdated = {
+        "measurements": bool(rows) and not state.is_done(st, measure_stage),
+        "profile": icc_path(jd, config).exists() and not state.is_done(st, "build-profile"),
+        "report": report is not None and not state.is_done(st, "verify"),
+    }
 
     return templates.TemplateResponse(
         request,
@@ -92,6 +79,7 @@ def results(request: Request, job_name: str):
             "rows": rows,
             "custom_rows": custom_rows,
             "report": report,
-            "icc_exists": icc_path(jd, config).exists(),
+            "icc_exists": icc_path(jd, config).exists() and state.is_done(st, "build-profile"),
+            "outdated": outdated,
         },
     )

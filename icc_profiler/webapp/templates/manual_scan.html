@@ -16,6 +16,11 @@
   </p>
 
   {% if error %}<p class="flash flash-error">{{ error }}</p>{% endif %}
+  {% if stale_readings %}
+  <p class="warning">⚠ Readings saved earlier belong to an <strong>older version of the chart</strong>
+     (it was regenerated since, which reshuffles the patches). They've been set aside and
+     won't be used. Measure the newly printed chart from the start.</p>
+  {% endif %}
 
   <div class="form-row" style="align-items:flex-start">
     <div style="display:flex; align-items:center; gap:16px; flex:none">
@@ -36,9 +41,9 @@
       <input type="hidden" name="patch_loc" value="{{ current.loc }}">
       <input type="hidden" name="next_patch" value="{{ next_row.loc if next_row else current.loc }}">
       <div class="form-row">
-        <label>L* <input type="number" step="0.01" name="L" value="{{ current.L if current.L is not none else '' }}" required></label>
-        <label>a* <input type="number" step="0.01" name="a" value="{{ current.a if current.a is not none else '' }}" required></label>
-        <label>b* <input type="number" step="0.01" name="b" value="{{ current.b if current.b is not none else '' }}" required></label>
+        <label>L* <input type="number" step="0.01" min="0" max="100" name="L" value="{{ current.L if current.L is not none else '' }}" required></label>
+        <label>a* <input type="number" step="0.01" min="-150" max="150" name="a" value="{{ current.a if current.a is not none else '' }}" required></label>
+        <label>b* <input type="number" step="0.01" min="-150" max="150" name="b" value="{{ current.b if current.b is not none else '' }}" required></label>
       </div>
       <button type="submit">Save &amp; next</button>
     </form>
