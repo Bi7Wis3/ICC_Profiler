@@ -382,6 +382,10 @@ def build_scanner_profile(job_dir: Path, config: JobConfig) -> None:
         f"-q{_QUALITY_LETTER.get(m.profile_quality, 'm')}",
         "-as",
         f"-D{config.job_name} scanner correction",
+        # Name the output explicitly: the Windows build of colprof defaults
+        # to .icm, the Linux build to .icc.
+        "-O",
+        str(basename.with_suffix(".icc")),
         str(basename),
     ]
     argyll_tools.run(profile_argv, log_file=log, cwd=out_dir)
@@ -506,13 +510,15 @@ def build_profile(job_dir: Path, config: JobConfig) -> None:
             argv.append(f"-L{config.output.black_ink_limit:g}")
     argv.extend(config.output.extra_colprof_args)
     profile_ti3 = _with_extra_patches(job_dir, config, src_ti3)
-    argv.append(str(profile_ti3.with_suffix("")))
+    produced_icc = profile_ti3.with_suffix(".icc")
+    # -O names the output explicitly: the Windows build of colprof would
+    # otherwise write <name>.icm, the Linux build <name>.icc.
+    argv.extend(["-O", str(produced_icc), str(profile_ti3.with_suffix(""))])
 
     # colprof at high/ultra quality can legitimately take many minutes (it
     # runs in the background in the web UI), so allow up to an hour.
     argyll_tools.run(argv, log_file=log, cwd=ti3_dir(job_dir), timeout=3600)
 
-    produced_icc = profile_ti3.with_suffix(".icc")
     _require_file(produced_icc, "colprof output (.icc)")
     final_icc = icc_path(job_dir, config)
     shutil.copyfile(produced_icc, final_icc)

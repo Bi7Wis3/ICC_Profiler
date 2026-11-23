@@ -61,7 +61,9 @@ class FakeArgyll:
                 out = argv[argv.index("-O") + 1]
                 Path(out).write_text("CTI3\n")
         elif tool == "colprof":
-            Path(argv[-1] + ".icc").write_bytes(b"fake icc")
+            # Like the Windows build: without -O, colprof writes <base>.icm.
+            out = argv[argv.index("-O") + 1] if "-O" in argv else argv[-1] + ".icm"
+            Path(out).write_bytes(b"fake icc")
         elif tool == "xicclu":
             # A toy 3-channel profile: channel 1 = darkness, 2 = redness,
             # 3 = yellowness.

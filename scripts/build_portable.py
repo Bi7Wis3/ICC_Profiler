@@ -9,6 +9,8 @@ job started on Windows can be finished on Linux and the other way round.
     python scripts/build_portable.py --no-zip           # folder only
 
 Copy dist/ICC_Profiler_Portable/ (or the unzipped zip) to the USB drive.
+Rebuilding keeps the jobs/ and shared/ folders in dist; the zip leaves
+their contents out.
 
 The bundle can be built on Linux/WSL or Windows: the dependency wheels are
 fetched for the target platform. On Linux the build also copies the X11
@@ -72,6 +74,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CACHE = ROOT / "build" / "cache"
 DIST = ROOT / "dist"
 BUNDLE_NAME = "ICC_Profiler_Portable"
+USER_DATA = {"jobs", "shared"}  # kept on rebuild, left out of the zip
 PY_MM = ".".join(PYTHON_VERSION.split(".")[:2])  # "3.14"
 
 
@@ -418,9 +421,32 @@ def make_zip(bundle: Path, zip_path: Path) -> None:
     zip_path.unlink(missing_ok=True)
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
         for path in sorted(bundle.rglob("*")):
-            arc = (Path(bundle.name) / path.relative_to(bundle)).as_posix()
+            rel = path.relative_to(bundle)
+            # The zip is for handing out: empty jobs/ and shared/ folders only.
+            if rel.parts[0] in USER_DATA and len(rel.parts) > 1 and rel != Path("shared/it8_references"):
+                continue
+            arc = (Path(bundle.name) / rel).as_posix()
             # zipfile keeps the Unix mode, so Linux unzip restores the x bits.
             zf.write(path, arc + "/" if path.is_dir() else arc)
+
+
+def ensure_not_running(bundle: Path) -> None:
+    """Stop before deleting anything if the bundle's Python is in use.
+
+    On Windows, files of a running program cannot be deleted, so a rebuild
+    would fail halfway and leave the running profiler without its app
+    folder. A folder holding an open file cannot be renamed either, so a
+    rename there and back is a safe test.
+    """
+    runtime = bundle / "runtime"
+    if not runtime.exists():
+        return
+    probe = bundle / "runtime.build-check"
+    try:
+        runtime.rename(probe)
+    except OSError:
+        sys.exit(f"error: the profiler in {bundle} seems to be running. Stop it, then build again.")
+    probe.rename(runtime)
 
 
 def main() -> int:
@@ -431,16 +457,24 @@ def main() -> int:
     platforms = [args.only] if args.only else ["windows", "linux"]
 
     bundle = DIST / BUNDLE_NAME
-    if bundle.exists():
-        shutil.rmtree(bundle)
-    bundle.mkdir(parents=True)
+    # Rebuild everything except the user data: jobs/ and shared/ survive, so
+    # rebuilding never wipes work done in the dist folder.
+    bundle.mkdir(parents=True, exist_ok=True)
+    ensure_not_running(bundle)
+    for item in bundle.iterdir():
+        if item.name in USER_DATA:
+            continue
+        if item.is_dir():
+            shutil.rmtree(item)
+        else:
+            item.unlink()
 
     ignore = shutil.ignore_patterns("__pycache__", "*.pyc")
     shutil.copytree(ROOT / "icc_profiler", bundle / "app" / "icc_profiler", ignore=ignore)
     shutil.copytree(ROOT / "configs", bundle / "configs", ignore=ignore)
     shutil.copy2(ROOT / "README.md", bundle / "README.md")
-    (bundle / "jobs").mkdir()
-    (bundle / "shared" / "it8_references").mkdir(parents=True)
+    (bundle / "jobs").mkdir(exist_ok=True)
+    (bundle / "shared" / "it8_references").mkdir(parents=True, exist_ok=True)
     write_text(bundle / "README.txt", README_TXT.format(python=PYTHON_VERSION, argyll=ARGYLL_VERSION), crlf=True)
 
     if "windows" in platforms:
