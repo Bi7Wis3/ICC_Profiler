@@ -260,6 +260,11 @@
      print a small second chart with <em>different</em> patches, measure it exactly like the main
      chart (same paper, same {{ config.measurement.colorimeter_csv.specular or "SCI/SCE" }} and
      illuminant settings), and upload the export here.</p>
+  <p><small>Print it like the main chart: straight to the printer, with no profile and no color
+     management. The printed sheet will not look different from before; the profile is tested
+     here, by comparing its predictions with your readings. The profile only changes a print when
+     a file is converted to it (in your RIP, Acrobat or Photoshop), or through the CMYK recipes on
+     the spot colors page.</small></p>
   {% if not icc_exists %}<p><small>Build the profile first; the check needs a finished profile.</small></p>{% endif %}
   <form method="post" action="/jobs/{{ job_name }}/check/generate" class="form-inline"
         {% if check.has_chart %}onsubmit="return confirm('Make a new check chart? The current one and its readings no longer count.');"{% endif %}>
