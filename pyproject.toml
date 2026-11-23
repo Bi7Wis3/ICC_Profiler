@@ -1,0 +1,43 @@
+[project]
+name = "icc-profiler"
+version = "0.2.0"
+description = "Build custom ICC printer profiles with ArgyllCMS, via a local web UI or CLI"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.32",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.12",
+    "pillow>=10.4",
+    "img2pdf>=0.5.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "httpx>=0.27", "ruff==0.17.0"]
+
+[project.scripts]
+icc_profiler = "icc_profiler.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["icc_profiler*"]
+
+[tool.setuptools.package-data]
+"icc_profiler.webapp" = ["*.json", "templates/*.html", "static/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["argyll: needs a real ArgyllCMS install (skipped automatically if targen isn't on PATH)"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+extend-exclude = ["jobs", "shared"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501", "E731"]

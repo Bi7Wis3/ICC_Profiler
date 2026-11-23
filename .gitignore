@@ -9,3 +9,20 @@ __pycache__/
 !/jobs/.gitkeep
 /shared/it8_references/*
 !/shared/it8_references/.gitkeep
+
+# Local test data and outputs dropped in the project root (charts, profiles,
+# instrument exports, installers) -- not project source.
+/*.xlsx
+/*.pdf
+/*.icc
+/*.icm
+/*.csv
+/*.txt
+!/requirements*.txt
+/*.xml
+/*.jpg
+/*.jpeg
+/*.png
+/*.tif
+/*.tiff
+/*.zip
