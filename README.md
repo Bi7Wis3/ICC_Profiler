@@ -124,25 +124,39 @@ sent from other websites. To open the UI from another machine, start it
 with `--host 0.0.0.0` and list the names you'll use, e.g.
 `ICC_PROFILER_ALLOWED_HOSTS="localhost,192.168.1.20" ./start_profiler.sh --host 0.0.0.0`.
 
-## Portable Windows bundle (nothing to install)
+## Portable version (USB drive, Windows and Linux)
 
-For Windows PCs without Python or ArgyllCMS, build a self-contained zip:
+To run the profiler on PCs that have nothing installed, for example off a
+USB stick, build the portable version:
 
 ```
-python scripts/build_windows_bundle.py
+python scripts/build_portable.py                  # Windows + Linux
+python scripts/build_portable.py --only windows   # or one platform
 ```
 
-This writes `dist/ICC_Profiler_Windows_<version>.zip` (about 70 MB) with an
-embeddable Python 3.14, the Windows wheels of all requirements, ArgyllCMS
-3.5.0 and the app. It can be built on WSL/Linux or Windows. Downloads are
-cached in `build/cache` and checked against pinned SHA256 sums; to upgrade
-Python or ArgyllCMS, change the version, URL and hash constants at the top
-of the script.
+This writes `dist/ICC_Profiler_Portable/` and a zip of it (about 180 MB for
+both platforms). Copy the folder to the USB drive. It holds a private Python
+3.14 and ArgyllCMS 3.5.0 for each platform, the app, and **one shared
+`jobs` folder**, so a job started on Windows can be finished on Linux and
+the other way round.
 
-On the target PC: unzip anywhere and double-click `start_profiler.bat`. The
-browser opens on `http://localhost:8000`. Jobs are kept in the bundle's own
-`jobs\` folder. `icc_profiler.bat` is the command line (`icc_profiler.bat doctor`).
-To update, unzip the new version and copy `jobs\` and `shared\` across.
+- **Windows:** double-click `Start_Windows.bat`.
+- **Linux (x86_64, glibc 2.28+):** `bash Start_Linux.sh` in a terminal.
+- Command line: `icc_profiler.bat doctor` / `bash icc_profiler.sh doctor`.
+
+Linux details the launcher handles itself:
+- FAT32/exFAT sticks are often mounted without permission to run programs.
+  The first start then copies Python and ArgyllCMS to
+  `~/.cache/icc_profiler_portable`; the jobs stay on the stick.
+- If the stick is read-only (an Ubuntu live session mounts its own boot
+  stick that way), jobs go to `~/ICC_Profiler/jobs` instead and the
+  terminal says so.
+- ArgyllCMS needs the X11 libraries. When the bundle is built on Linux,
+  copies of them are included and used only on PCs that lack them.
+
+The build runs on Linux/WSL or Windows. Downloads are cached in
+`build/cache` and checked against pinned SHA256 sums; to upgrade Python or
+ArgyllCMS, change the constants at the top of the script.
 
 ArgyllCMS is AGPL v3; the bundle includes its `License.txt` and a pointer to
 its source code at argyllcms.com.
