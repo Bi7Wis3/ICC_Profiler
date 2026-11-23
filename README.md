@@ -105,6 +105,10 @@ uvicorn icc_profiler.webapp.app:app --reload
 Or, to skip activating the venv yourself: `./start_profiler.sh` (runs the
 same command via the project's `.venv`; any extra arguments are passed
 through to uvicorn, e.g. `./start_profiler.sh --port 8080`).
+On native Windows, double-click `start_profiler.bat` (or run it from a
+terminal with the same extra arguments). The first run creates a separate
+`.venv-win` venv and installs the requirements, so it never clashes with the
+WSL `.venv`.
 
 Open `http://localhost:8000`. Create a job, pick a measurement method, add
 any custom target colors, generate the chart, print it, upload your
