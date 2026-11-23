@@ -124,6 +124,29 @@ sent from other websites. To open the UI from another machine, start it
 with `--host 0.0.0.0` and list the names you'll use, e.g.
 `ICC_PROFILER_ALLOWED_HOSTS="localhost,192.168.1.20" ./start_profiler.sh --host 0.0.0.0`.
 
+## Portable Windows bundle (nothing to install)
+
+For Windows PCs without Python or ArgyllCMS, build a self-contained zip:
+
+```
+python scripts/build_windows_bundle.py
+```
+
+This writes `dist/ICC_Profiler_Windows_<version>.zip` (about 70 MB) with an
+embeddable Python 3.14, the Windows wheels of all requirements, ArgyllCMS
+3.5.0 and the app. It can be built on WSL/Linux or Windows. Downloads are
+cached in `build/cache` and checked against pinned SHA256 sums; to upgrade
+Python or ArgyllCMS, change the version, URL and hash constants at the top
+of the script.
+
+On the target PC: unzip anywhere and double-click `start_profiler.bat`. The
+browser opens on `http://localhost:8000`. Jobs are kept in the bundle's own
+`jobs\` folder. `icc_profiler.bat` is the command line (`icc_profiler.bat doctor`).
+To update, unzip the new version and copy `jobs\` and `shared\` across.
+
+ArgyllCMS is AGPL v3; the bundle includes its `License.txt` and a pointer to
+its source code at argyllcms.com.
+
 ## Keeping results consistent
 
 Each stage consumes the previous stage's output, so whenever a stage runs,

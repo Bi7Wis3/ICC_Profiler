@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -11,7 +12,9 @@ from icc_profiler.config import JobConfig
 from icc_profiler.errors import PipelineError
 from icc_profiler.names import safe_name
 
-DEFAULT_JOBS_ROOT = Path("jobs")
+# Same override as the web UI, so the portable bundle finds its jobs folder
+# whatever directory the CLI is started from.
+DEFAULT_JOBS_ROOT = Path(os.environ.get("ICC_PROFILER_JOBS_ROOT") or "jobs")
 
 
 def _job_dir(args: argparse.Namespace) -> Path:

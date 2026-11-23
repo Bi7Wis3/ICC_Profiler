@@ -27,3 +27,7 @@ __pycache__/
 /*.tif
 /*.tiff
 /*.zip
+
+# Windows bundle build output
+/build/
+/dist/
