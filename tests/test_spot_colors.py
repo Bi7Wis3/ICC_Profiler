@@ -168,3 +168,32 @@ def test_proof_readings_feed_the_profile(profiled_job, fake_argyll):
     assert list(stages.ti3_dir(job_dir).glob("*_extra.removed-*.ti3"))
     stages.build_profile(job_dir, config)
     assert not [c for c in fake_argyll.calls if "colprof" in c[0]][-1][-1].endswith("_plus")
+
+
+def test_parse_recipe(profiled_job):
+    _, config = profiled_job  # toy profile is RGB: three values
+    assert spot_colors.parse_recipe("100/60,5/0", config) == [100.0, 60.5, 0.0]
+    assert spot_colors.parse_recipe(" 10 20;30 ", config) == [10.0, 20.0, 30.0]
+    for bad in ("100/60", "100/60/0/75", "100/x/0", "100/60/101"):
+        with pytest.raises(PipelineError):
+            spot_colors.parse_recipe(bad, config)
+
+
+def test_fixed_recipe_survives_recompute_and_can_be_cleared(profiled_job):
+    job_dir, config = profiled_job
+    spot_colors.add_colors(job_dir, config, [("Blue", (40, 10, -50))], "typed")
+    auto = spot_colors.load(job_dir)["colors"][0]["device"]
+    spot_colors.set_fixed_recipe(job_dir, config, "Blue", [20.0, 30.0, 40.0])
+    spot_colors.recompute(job_dir, config)
+    (c,) = spot_colors.status(job_dir, config)["colors"]
+    assert c["fixed"] and c["device"] == [20.0, 30.0, 40.0]
+    # Expected Lab is the profile's prediction for the fixed recipe, not the target.
+    assert c["expected_lab"] != pytest.approx(c["target_lab"], abs=0.5) and c["expected_de"] > 1
+    assert not spot_colors._correctable({**c, "measured_lab": [0, 0, 0], "measured_expected_lab": [50, 0, 0],
+                                         "measured_device": c["device"], "measured_de": 99})
+    assert spot_colors.recipes_csv(job_dir, config).splitlines()[1].endswith(",yes")
+    spot_colors.set_fixed_recipe(job_dir, config, "Blue", None)
+    (c,) = spot_colors.load(job_dir)["colors"]
+    assert "fixed_device" not in c and c["device"] == auto
+    with pytest.raises(PipelineError):
+        spot_colors.set_fixed_recipe(job_dir, config, "Nope", None)

@@ -84,6 +84,20 @@ def remove(job_name: str, name: str = Form(...)):
     return _back(job_name, True, f"Removed {name}.")
 
 
+@router.post("/jobs/{job_name}/spot/fixed")
+def fixed_recipe(job_name: str, name: str = Form(...), recipe: str = Form("")):
+    config = load_config(job_name)
+    try:
+        require_idle(job_name)
+        values = spot_colors.parse_recipe(recipe, config) if recipe.strip() else None
+        spot_colors.set_fixed_recipe(job_dir(job_name), config, name, values)
+    except PipelineError as exc:
+        return _back(job_name, False, str(exc))
+    if values is None:
+        return _back(job_name, True, f"{name}: back to the recipe looked up in the profile.")
+    return _back(job_name, True, f"{name}: recipe fixed at {'/'.join(f'{v:g}' for v in values)}.")
+
+
 @router.post("/jobs/{job_name}/spot/recompute")
 def recompute(job_name: str):
     try:

@@ -25,7 +25,19 @@
       <tr>
         <td><span class="swatch" style="background: {{ c.target_hex }}" title="Target L*{{ c.target_lab[0] }} a*{{ c.target_lab[1] }} b*{{ c.target_lab[2] }}"></span></td>
         <td>{{ c.name }}{% if c.rounds %} <small>({{ c.rounds }}× corrected)</small>{% endif %}</td>
-        <td>{% for ch in c.channels %}{{ ch }} {{ c.device[loop.index0] }}{% if not loop.last %} · {% endif %}{% endfor %}</td>
+        <td>{% for ch in c.channels %}{{ ch }} {{ c.device[loop.index0] }}{% if not loop.last %} · {% endif %}{% endfor %}
+            {% if c.fixed %}<small class="pill pill-done" title="Set by hand; kept when the recipes are recalculated.">fixed</small>{% endif %}
+            <details><summary><small>{{ "Change" if c.fixed else "Set by hand" }}</small></summary>
+              <form method="post" action="/jobs/{{ job_name }}/spot/fixed">
+                <input type="hidden" name="name" value="{{ c.name }}">
+                <input type="text" name="recipe" size="14" value="{{ c.device|map('round', 1)|map('string')|join('/') }}"
+                       title="{{ c.channels|join('/') }} in %, e.g. 100/60/0/75">
+                <button type="submit">Fix</button>
+              </form>
+              {% if c.fixed %}<form method="post" action="/jobs/{{ job_name }}/spot/fixed">
+                <input type="hidden" name="name" value="{{ c.name }}"><input type="hidden" name="recipe" value="">
+                <button type="submit">Back to automatic</button></form>{% endif %}
+            </details></td>
         <td>{{ "%.2f"|format(c.expected_de) }}{% if c.out_of_gamut %} <small class="pill pill-pending" title="The printer can't reach this color; the recipe is the closest it can print.">out of gamut</small>{% endif %}</td>
         <td>{{ c.proof_label or "" }}</td>
         <td>{% if c.measured_lab %}<span class="swatch" style="background: {{ c.measured_hex }}"></span>
@@ -40,7 +52,8 @@
   <p><small>Use these values as the CMYK of each spot color in your artwork, and print it the way you
      printed the chart (no extra color management on top). Expected ΔE is the profile's own estimate.
      Above {{ gamut_de }} the color is outside what the printer can reach, and the recipe is the closest
-     it can print.</small></p>
+     it can print. For such a color you can set the recipe by hand (for example to keep a dark blue blue
+     rather than near-black); the expected ΔE then shows how far your recipe is from the target.</small></p>
   {% else %}
   <p class="empty">No spot colors yet. Add some below.</p>
   {% endif %}

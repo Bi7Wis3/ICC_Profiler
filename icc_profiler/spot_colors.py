@@ -14,6 +14,11 @@ patch would land and where it did is added to that color's correction
 before the recipe is looked up again. That removes the profile's local
 error for exactly those colors.
 
+A recipe can also be fixed by hand, for a color the printer can't reach
+where the closest match isn't the compromise wanted (a dark blue whose
+closest printable color is near-black, say). A fixed recipe is kept
+through recalculation; only its expected Lab and error are looked up.
+
 Target Lab values come from measuring the swatch book with the same
 colorimeter and settings as the chart (imported like the chart readings,
 so D65/2 readings are adapted to D50), or are typed in as D50/2 values
@@ -200,6 +205,42 @@ def remove_color(job_dir: Path, name: str) -> None:
         _save(job_dir, data)
 
 
+def parse_recipe(text: str, config: JobConfig) -> list[float]:
+    """Device values in percent from e.g. "100/60/0/75", "100 60 0 75" or "100;60;0;75"."""
+    fields = _DEVICE_FIELDS.get(config.chart.colorspace)
+    if not fields:
+        raise PipelineError(f"Spot colors aren't supported for colorspace {config.chart.colorspace!r}")
+    parts = [p for p in re.split(r"[/;\s]+", text.strip().replace(",", ".")) if p]
+    if len(parts) != len(fields):
+        names = "/".join(f.split("_")[1] for f in fields)
+        raise PipelineError(f"Enter {len(fields)} values ({names}), e.g. {'/'.join(['50'] * len(fields))}.")
+    try:
+        values = [float(p) for p in parts]
+    except ValueError:
+        raise PipelineError(f"Not a number in {text!r}.") from None
+    if any(not 0 <= v <= 100 for v in values):
+        raise PipelineError("Each value must be between 0 and 100 %.")
+    return [round(v, 1) for v in values]
+
+
+def set_fixed_recipe(job_dir: Path, config: JobConfig, name: str, values: list[float] | None) -> None:
+    """Fix a color's recipe by hand, or with None go back to the looked-up one."""
+    with joblock.job_lock(job_dir):
+        data = load(job_dir)
+        color = next((c for c in data["colors"] if c["name"] == name), None)
+        if color is None:
+            raise PipelineError(f"No spot color named {name!r}.")
+        if values is None:
+            color.pop("fixed_device", None)
+        else:
+            color["fixed_device"] = list(values)
+            # A proof correction was for the looked-up recipe; it doesn't apply.
+            color["correction"] = [0.0, 0.0, 0.0]
+            color["rounds"] = 0
+        _save(job_dir, data)
+    recompute(job_dir, config)
+
+
 # -- recipes --------------------------------------------------------------------
 
 
@@ -249,8 +290,13 @@ def recompute(job_dir: Path, config: JobConfig) -> None:
         data = load(job_dir)
         colors = data["colors"]
         device = _lookup(config, icc, backward, [c["target_lab"] for c in colors], log)
+        for i, c in enumerate(colors):
+            if c.get("fixed_device"):
+                device[i] = [v / 100 for v in c["fixed_device"]]
         reachable = _lookup(config, icc, forward, device, log)
-        corrected = [i for i, c in enumerate(colors) if any(c.get("correction", [0, 0, 0]))]
+        corrected = [
+            i for i, c in enumerate(colors) if any(c.get("correction", [0, 0, 0])) and not c.get("fixed_device")
+        ]
         if corrected:
             aims = [
                 [min(max(r + d, lo), hi) for r, d, lo, hi in zip(reachable[i], colors[i]["correction"], (0, -128, -128), (100, 127, 127))]
@@ -399,6 +445,8 @@ def _correctable(c: dict) -> bool:
     already closer to the target than expected -- which happens with
     out-of-gamut colors, where "correcting" would only move the print back
     to the profile's idea of the closest color."""
+    if c.get("fixed_device"):
+        return False
     if not c.get("measured_lab") or not c.get("measured_expected_lab") or c.get("measured_device") != c.get("device"):
         return False
     if c.get("measured_de", 0) <= c.get("expected_de", 0):
@@ -530,6 +578,7 @@ def status(job_dir: Path, config: JobConfig) -> dict:
         row["target_hex"] = lab_d50_to_hex(*c["target_lab"])
         row["measured_hex"] = lab_d50_to_hex(*c["measured_lab"]) if c.get("measured_lab") else None
         row["out_of_gamut"] = c.get("expected_de", 0) > OUT_OF_GAMUT_DE
+        row["fixed"] = bool(c.get("fixed_device"))
         row["proof_label"] = labels.get(c["name"])
         row["channels"] = [f.split("_")[1] for f in fields]
         colors.append(row)
@@ -562,11 +611,12 @@ def recipes_csv(job_dir: Path, config: JobConfig) -> str:
     w = csv_module.writer(out)
     w.writerow(
         ["Name", *[f.split("_")[1] + " %" for f in fields], "Target L*", "Target a*", "Target b*",
-         "Expected dE2000", "Measured dE2000", "Out of gamut"]
+         "Expected dE2000", "Measured dE2000", "Out of gamut", "Fixed by hand"]
     )
     for c in load(job_dir)["colors"]:
         w.writerow(
             [c["name"], *c.get("device", []), *c["target_lab"], c.get("expected_de", ""),
-             c.get("measured_de", ""), "yes" if c.get("expected_de", 0) > OUT_OF_GAMUT_DE else ""]
+             c.get("measured_de", ""), "yes" if c.get("expected_de", 0) > OUT_OF_GAMUT_DE else "",
+             "yes" if c.get("fixed_device") else ""]
         )
     return out.getvalue()
